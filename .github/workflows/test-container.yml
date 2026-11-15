@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
     steps:
       # A user writes `uses: osscontainertools/kaniko-action@v1`. This test
