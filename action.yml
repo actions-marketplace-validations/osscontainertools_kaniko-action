@@ -1,4 +1,4 @@
-name: kaniko build
+name: kaniko
 description: Build a container image from a Dockerfile with kaniko and push it, without Docker privileges.
 author: OSS Container Tools
 branding:
