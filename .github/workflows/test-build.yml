@@ -1,0 +1,36 @@
+# A typical build: one stage of a multi-stage Dockerfile and a build arg with a
+# space in its value. Later steps receive the pushed index as the `image`
+# output, pinned by digest.
+name: test-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: build
+        uses: ./
+        with:
+          context: tests/build
+          destination: ghcr.io/${{ github.repository }}/test-build:${{ github.sha }}
+          target: base
+          build-args: |
+            GREETING=hello ${{ github.run_id }}
+      - name: verify
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$IMAGE" | grep -E "^ghcr.io/${GITHUB_REPOSITORY}/test-build@sha256:[0-9a-f]{64}$"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          test "$(docker buildx imagetools inspect --raw "$IMAGE" | jq -r .mediaType)" = application/vnd.oci.image.index.v1+json
+          test "$(docker run --rm "$IMAGE" cat /greeting)" = "hello $GITHUB_RUN_ID"

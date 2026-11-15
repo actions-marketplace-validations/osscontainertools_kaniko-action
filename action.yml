@@ -1,0 +1,78 @@
+name: kaniko build
+description: Build a container image from a Dockerfile with kaniko and push it, without Docker privileges.
+author: OSS Container Tools
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  context:
+    description: Build context directory, relative to the workspace.
+    default: .
+  dockerfile:
+    description: Path to the Dockerfile, relative to the build context.
+    default: Dockerfile
+  destination:
+    description: Image reference to push to.
+    default: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+  target:
+    description: Dockerfile stage to build. Empty builds the last stage.
+    default: ""
+  build-args:
+    description: Build arguments, one `KEY=value` per line.
+    default: ""
+  push:
+    description: Push the image and the layer cache. Without a push, the `image` output stays empty.
+    default: "true"
+  reproducible:
+    description: Strip timestamps from the image, so the same inputs give the same digest.
+    default: "false"
+  cache:
+    description: Cache layers in `<destination repository>/cache` and reuse them in later builds.
+    default: "false"
+  provenance:
+    description: Attach a SLSA provenance attestation. The image is then pushed as an index.
+    default: "true"
+  predefined-annotations:
+    description: Annotate the image with its source, revision and version, read from the workflow run.
+    default: "true"
+  retries:
+    description: How often pulls, base image extraction and the push are retried.
+    default: "3"
+  github-token:
+    description: Token kaniko uses for ghcr.io. Pushing needs `packages: write`.
+    default: ${{ github.token }}
+  extra-args:
+    description: Additional executor flags.
+    default: ""
+  image:
+    description: kaniko debug image to run the build in, when the job does not already run in a kaniko image.
+    default: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
+
+outputs:
+  image:
+    description: The pushed image pinned by digest, `repo@sha256:...`. The index digest when provenance is on.
+    value: ${{ steps.build.outputs.image }}
+
+runs:
+  using: composite
+  steps:
+    - id: build
+      shell: sh
+      env:
+        INPUT_CONTEXT: ${{ inputs.context }}
+        INPUT_DOCKERFILE: ${{ inputs.dockerfile }}
+        INPUT_DESTINATION: ${{ inputs.destination }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_BUILD_ARGS: ${{ inputs.build-args }}
+        INPUT_PUSH: ${{ inputs.push }}
+        INPUT_REPRODUCIBLE: ${{ inputs.reproducible }}
+        INPUT_CACHE: ${{ inputs.cache }}
+        INPUT_PROVENANCE: ${{ inputs.provenance }}
+        INPUT_PREDEFINED_ANNOTATIONS: ${{ inputs.predefined-annotations }}
+        INPUT_RETRIES: ${{ inputs.retries }}
+        INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+        INPUT_IMAGE: ${{ inputs.image }}
+        KANIKO_GHCR_IO_USER: ${{ github.actor }}
+        KANIKO_GHCR_IO_PASSWORD: ${{ inputs.github-token }}
+      run: "$GITHUB_ACTION_PATH/build.sh"
