@@ -40,7 +40,7 @@ inputs:
     description: How often pulls, base image extraction and the push are retried.
     default: "3"
   github-token:
-    description: Token kaniko uses for ghcr.io. Pushing needs `packages: write`.
+    description: "Token kaniko uses for ghcr.io. Pushing needs `packages: write`."
     default: ${{ github.token }}
   extra-args:
     description: Additional executor flags.
