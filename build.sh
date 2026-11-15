@@ -159,8 +159,9 @@ build() {
       env_flags="$env_flags --env $env_name"
     done
     config_flags=""
+    # Outside /kaniko, which kaniko moves away in bootstrap mode.
     if [ -f "$HOME/.docker/config.json" ]; then
-      config_flags="--volume $HOME/.docker/config.json:/kaniko/.docker/config.json:ro"
+      config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro --env DOCKER_CONFIG=/docker-config"
     fi
     # shellcheck disable=SC2086 # the flag lists are word-split on purpose
     cid=$(docker create $env_flags $config_flags --volume "$GITHUB_WORKSPACE:/workspace:ro" "$image" "$@")

@@ -17,6 +17,11 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7.0.1
+      # A docker login, as most workflows have, mounts a docker config into
+      # the kaniko container, and bootstrap mode must not trip over it.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       - id: build
         uses: ./
         with:
