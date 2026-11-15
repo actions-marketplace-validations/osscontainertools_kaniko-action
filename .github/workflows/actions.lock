@@ -12,7 +12,11 @@ workflows:
         - 'actions/checkout@v7.0.1'
     '.github/workflows/test-build.yml':
         - 'actions/checkout@v7.0.1'
+    '.github/workflows/test-cache-split.yml':
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/test-container.yml': []
+    '.github/workflows/test-features.yml':
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/test-multiarch-emulated.yml':
         - 'actions/checkout@v7.0.1'
     '.github/workflows/test-multiarch.yml': []

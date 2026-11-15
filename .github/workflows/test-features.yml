@@ -1,0 +1,37 @@
+# Opt-in features: kaniko's Preview and BuildKit compatibility profiles, the
+# job's token as a build secret, and a trace of the build sent to Firn. The
+# BuildKit profile makes a COPY after `USER 1000` root-owned, as the Dockerfile
+# specification says. Telemetry needs `id-token: write`.
+name: test-features
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: build
+        uses: ./
+        with:
+          context: tests/features
+          destination: ghcr.io/${{ github.repository }}/test-features:${{ github.sha }}
+          profile-preview: true
+          profile-buildkit: true
+          github-token-secret: true
+          telemetry: firn
+      - name: verify
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          test "$(docker run --rm "$IMAGE" stat -c %u /owned)" = 0

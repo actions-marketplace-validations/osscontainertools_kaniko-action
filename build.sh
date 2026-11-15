@@ -49,8 +49,74 @@ set -- "$@" \
   --image-fs-extract-retry="$INPUT_RETRIES" \
   --predefined-annotations="$INPUT_PREDEFINED_ANNOTATIONS" \
   --reproducible="$INPUT_REPRODUCIBLE" \
-  --cache="$INPUT_CACHE" \
   --credential-helpers=env
+
+case "$INPUT_CACHE" in
+  off) ;;
+  on) set -- "$@" --cache=true ;;
+  split)
+    repo="${INPUT_DESTINATION%@*}"
+    case "${repo##*/}" in
+      *:*) repo="${repo%:*}" ;;
+    esac
+    set -- "$@" "--cache-from=$repo/cache"
+    cache_to="$repo/cache"
+    if [ "$GITHUB_REF" != "refs/heads/$INPUT_DEFAULT_BRANCH" ]; then
+      set -- "$@" "--cache-from=$repo/cache-unprotected"
+      cache_to="$repo/cache-unprotected"
+    fi
+    if [ "$INPUT_PUSH" = true ]; then
+      set -- "$@" "--cache-to=$cache_to"
+    fi
+    ;;
+  *)
+    echo "cache is $INPUT_CACHE, choose off, on or split" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$INPUT_GITHUB_TOKEN_SECRET" = true ]; then
+  KANIKO_SECRET_GITHUB_TOKEN="$INPUT_GITHUB_TOKEN"
+  export KANIKO_SECRET_GITHUB_TOKEN
+  set -- "$@" --secret=id=github_token,env=KANIKO_SECRET_GITHUB_TOKEN
+fi
+
+# The profiles mirror the README of the kaniko version `image` pins.
+profile_flags=""
+if [ "$INPUT_PROFILE_PREVIEW" = true ]; then
+  profile_flags="$profile_flags ADD_CHOWN_TAR ADD_FOLLOW_SYMLINK CACHE_COPY_FROM CACHE_IMAGE_INDEX COPY_KEEP_DEST_OWNER COPY_LINK COPY_SUBDIR_MODE DEFER_CACHE_PUSH FORMAT_INDEPENDENT_CACHE_KEY ISOLATE_CACHE_PUSH LOCAL_UNPACK_REQUIRES_TAR NATIVE_INIT PARALLEL_HASH RUN_CROSS_STAGE_BIND_MOUNT RUN_HEREDOC_SCRIPT RUN_MOUNT_BIND_RELATIVE RUN_MOUNT_TMPFS SNAPSHOT_TRACK_CACHED_LAYERS WARMER_BUILD_ARGS WARMER_PREDEFINED_ARGS"
+fi
+if [ "$INPUT_PROFILE_BUILDKIT" = true ]; then
+  profile_flags="$profile_flags CHOWN_ON_IMPLICIT_DIRS COPY_AS_ROOT COPY_CHMOD_ON_IMPLICIT_DIRS COPY_LINK UNPACK_XZ"
+fi
+for flag in $profile_flags; do
+  eval "FF_KANIKO_$flag=\"\${FF_KANIKO_$flag:-true}\""
+  export "FF_KANIKO_$flag"
+done
+
+case "$INPUT_TELEMETRY" in
+  off) ;;
+  firn | custom)
+    if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+      echo "telemetry needs the job permission id-token: write" >&2
+      exit 1
+    fi
+    KANIKO_TELEMETRY_ID_TOKEN=$(wget -q -O - --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=kaniko-telemetry" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+    echo "::add-mask::$KANIKO_TELEMETRY_ID_TOKEN"
+    if [ "$INPUT_TELEMETRY" = firn ]; then
+      KANIKO_TELEMETRY_ENDPOINT=https://ingest.firnlayers.com/oidc/v1/traces
+      KANIKO_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT=https://ingest.firnlayers.com/ingest/token
+    else
+      KANIKO_TELEMETRY_ENDPOINT="$INPUT_TELEMETRY_ENDPOINT"
+      KANIKO_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT="$INPUT_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT"
+    fi
+    export KANIKO_TELEMETRY_ID_TOKEN KANIKO_TELEMETRY_ENDPOINT KANIKO_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT
+    ;;
+  *)
+    echo "telemetry is $INPUT_TELEMETRY, choose off, firn or custom" >&2
+    exit 1
+    ;;
+esac
 
 while IFS= read -r arg; do
   if [ -n "$arg" ]; then

@@ -1,0 +1,38 @@
+# Split cache: the default branch reads and writes <repo>/cache, all other refs
+# only read it and write <repo>/cache-unprotected, so a pull request cannot
+# plant layers that the default branch's builds reuse. The build arg changes
+# every run, so the build misses and writes the cache its ref may write.
+name: test-cache-split
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./
+        with:
+          context: tests/build
+          destination: ghcr.io/${{ github.repository }}/test-cache-split:${{ github.sha }}
+          target: base
+          build-args: |
+            GREETING=split ${{ github.run_id }}
+          cache: split
+      - name: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE: ghcr.io/${{ github.repository }}/test-cache-split/${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'cache' || 'cache-unprotected' }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          tags=$(docker run --rm --volume "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
+            registry.gitlab.com/osscontainertools/components/kaniko/merge:release-11b74ff77aae51e40166744b2c6e062c81633b84@sha256:322a2281f783d403be2b63ce88281f6ee54e9e08644d8f94628b5e23cdf6c4c8 \
+            crane ls "$CACHE")
+          test -n "$tags"
