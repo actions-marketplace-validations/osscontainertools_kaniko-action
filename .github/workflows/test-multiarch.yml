@@ -1,7 +1,7 @@
 # Multi-arch at native speed: the reusable workflow builds each platform on its
 # own runner and merges them into one index. Later jobs read the index from the
 # `image` output. A user writes
-# `uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@<commit>`.
+# `uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@58c7a9b907d8c089ff81c5335d129107d57f8e25 # v1.0.0`.
 name: test-multiarch
 
 on:
