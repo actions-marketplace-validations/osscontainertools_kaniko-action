@@ -1,0 +1,31 @@
+# The job runs inside the kaniko image, as on a Kubernetes runner without
+# Docker, so the action runs kaniko directly.
+name: test-container
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: build
+        uses: ./
+        with:
+          context: tests/build
+          destination: ghcr.io/${{ github.repository }}/test-container:${{ github.sha }}
+          target: base
+          build-args: |
+            GREETING=hello ${{ github.run_id }}
+      - name: verify
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: echo "$IMAGE" | grep -E "^ghcr.io/${GITHUB_REPOSITORY}/test-container@sha256:[0-9a-f]{64}$"
