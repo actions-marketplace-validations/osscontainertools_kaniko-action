@@ -14,13 +14,26 @@ else
 fi
 mkdir -p "$results"
 
-case "$INPUT_DOCKERFILE" in
-  /*) dockerfile="$INPUT_DOCKERFILE" ;;
-  *) dockerfile="$root/$INPUT_CONTEXT/$INPUT_DOCKERFILE" ;;
-esac
+# Without a checkout, as in a Kubernetes job that runs no JavaScript actions,
+# kaniko clones the triggering commit itself.
+if [ -d "$GITHUB_WORKSPACE/$INPUT_CONTEXT" ]; then
+  context="$root/$INPUT_CONTEXT"
+  case "$INPUT_DOCKERFILE" in
+    /*) dockerfile="$INPUT_DOCKERFILE" ;;
+    *) dockerfile="$context/$INPUT_DOCKERFILE" ;;
+  esac
+  set --
+else
+  context="git://${GITHUB_SERVER_URL#*://}/$GITHUB_REPOSITORY.git#$GITHUB_REF#$GITHUB_SHA"
+  dockerfile="$INPUT_DOCKERFILE"
+  set -- --context-sub-path="$INPUT_CONTEXT"
+  GIT_USERNAME=x-access-token
+  GIT_PASSWORD="$INPUT_GITHUB_TOKEN"
+  export GIT_USERNAME GIT_PASSWORD
+fi
 
-set -- \
-  --context="$root/$INPUT_CONTEXT" \
+set -- "$@" \
+  --context="$context" \
   --dockerfile="$dockerfile" \
   --destination="$INPUT_DESTINATION" \
   --target="$INPUT_TARGET" \
@@ -55,7 +68,7 @@ set -- "$@" $INPUT_EXTRA_ARGS
 if [ -x /kaniko/executor ]; then
   /kaniko/executor "$@"
 else
-  env_names="GITHUB_ACTIONS GITHUB_REPOSITORY GITHUB_SHA GITHUB_REF GITHUB_REF_NAME GITHUB_HEAD_REF GITHUB_SERVER_URL GITHUB_WORKFLOW GITHUB_JOB GITHUB_RUN_ID GITHUB_RUN_ATTEMPT KANIKO_GHCR_IO_USER KANIKO_GHCR_IO_PASSWORD"
+  env_names="GITHUB_ACTIONS GITHUB_REPOSITORY GITHUB_SHA GITHUB_REF GITHUB_REF_NAME GITHUB_HEAD_REF GITHUB_SERVER_URL GITHUB_WORKFLOW GITHUB_JOB GITHUB_RUN_ID GITHUB_RUN_ATTEMPT KANIKO_GHCR_IO_USER KANIKO_GHCR_IO_PASSWORD GIT_USERNAME GIT_PASSWORD"
   env_names="$env_names $(env | sed -n 's/^\(\(FF_\)\{0,1\}KANIKO_[A-Z0-9_]*\)=.*/\1/p' | tr '\n' ' ')"
   env_flags=""
   for name in $env_names; do

@@ -7,7 +7,7 @@ branding:
 
 inputs:
   context:
-    description: Build context directory, relative to the workspace.
+    description: Build context directory, relative to the workspace. Without a checkout, kaniko clones the triggering commit and uses this directory in it.
     default: .
   dockerfile:
     description: Path to the Dockerfile, relative to the build context.
@@ -40,7 +40,7 @@ inputs:
     description: How often pulls, base image extraction and the push are retried.
     default: "3"
   github-token:
-    description: "Token kaniko uses for ghcr.io. Pushing needs `packages: write`."
+    description: "Token kaniko uses for ghcr.io, and to clone the repository without a checkout. Pushing needs `packages: write`."
     default: ${{ github.token }}
   extra-args:
     description: Additional executor flags.
@@ -73,6 +73,7 @@ runs:
         INPUT_RETRIES: ${{ inputs.retries }}
         INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
         INPUT_IMAGE: ${{ inputs.image }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         KANIKO_GHCR_IO_USER: ${{ github.actor }}
         KANIKO_GHCR_IO_PASSWORD: ${{ inputs.github-token }}
       run: "$GITHUB_ACTION_PATH/build.sh"
