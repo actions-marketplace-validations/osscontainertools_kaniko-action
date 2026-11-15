@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: build
-        uses: osscontainertools/kaniko-action@58c7a9b907d8c089ff81c5335d129107d57f8e25 # v1.0.0
+        uses: osscontainertools/kaniko-action@48d0c097c2c679681b51e18cb67ed7d08d89cb51 # v1.0.1
       - run: echo "pushed ${{ steps.build.outputs.image }}"
 ```
 
@@ -33,7 +33,7 @@ jobs:
     runs-on: arc-runner-set
     container: ghcr.io/osscontainertools/kaniko:v1.29.1-debug
     steps:
-      - uses: osscontainertools/kaniko-action@58c7a9b907d8c089ff81c5335d129107d57f8e25 # v1.0.0
+      - uses: osscontainertools/kaniko-action@48d0c097c2c679681b51e18cb67ed7d08d89cb51 # v1.0.1
 ```
 
 ## Build a multi-arch image
@@ -50,7 +50,7 @@ One job, emulated:
 
 ```yaml
       - id: build
-        uses: osscontainertools/kaniko-action@58c7a9b907d8c089ff81c5335d129107d57f8e25 # v1.0.0
+        uses: osscontainertools/kaniko-action@48d0c097c2c679681b51e18cb67ed7d08d89cb51 # v1.0.1
         with:
           platforms: linux/amd64,linux/arm64
 ```
@@ -60,7 +60,7 @@ One runner per platform, at native speed. The workflow runs as a job of its own,
 ```yaml
 jobs:
   image:
-    uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@58c7a9b907d8c089ff81c5335d129107d57f8e25 # v1.0.0
+    uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@48d0c097c2c679681b51e18cb67ed7d08d89cb51 # v1.0.1
     permissions:
       contents: read
       packages: write
