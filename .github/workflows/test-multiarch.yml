@@ -1,0 +1,36 @@
+# Multi-arch at native speed: the reusable workflow builds each platform on its
+# own runner and merges them into one index. Later jobs read the index from the
+# `image` output. A user writes
+# `uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@<commit>`.
+name: test-multiarch
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    uses: ./.github/workflows/multiarch.yml
+    with:
+      context: tests/multiarch
+      destination: ghcr.io/${{ github.repository }}/test-multiarch:${{ github.sha }}
+
+  verify:
+    needs: image
+    strategy:
+      matrix:
+        runner: [ubuntu-26.04, ubuntu-26.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - env:
+          IMAGE: ${{ needs.image.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$IMAGE" | grep -E "^ghcr.io/${GITHUB_REPOSITORY}/test-multiarch@sha256:[0-9a-f]{64}$"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          test "$(docker run --rm "$IMAGE" cat /arch)" = "$(dpkg --print-architecture)"

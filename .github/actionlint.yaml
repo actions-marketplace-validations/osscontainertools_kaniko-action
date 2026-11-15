@@ -1,5 +1,9 @@
-# GitHub-hosted labels that actionlint does not know yet.
+# GitHub-hosted labels and context properties that actionlint does not know yet.
 self-hosted-runner:
   labels:
     - ubuntu-26.04
     - ubuntu-26.04-arm
+paths:
+  .github/workflows/multiarch.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined'

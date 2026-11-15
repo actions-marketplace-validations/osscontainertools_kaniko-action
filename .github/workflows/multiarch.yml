@@ -1,0 +1,132 @@
+# Builds one image per platform, each on a native runner, and merges them into
+# one index. Callers use it as a job:
+#
+#   jobs:
+#     image:
+#       uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@<commit>
+#
+# For a single job with emulated platforms, use the action's `platforms` input.
+name: multiarch
+
+on:
+  workflow_call:
+    inputs:
+      context:
+        description: Build context directory, relative to the repository.
+        type: string
+        default: .
+      dockerfile:
+        description: Path to the Dockerfile, relative to the build context.
+        type: string
+        default: Dockerfile
+      destination:
+        description: Image reference to push the index to. Each platform is also pushed as `<destination>-<arch>`. Empty pushes to `ghcr.io/<owner>/<repo>:<branch or tag>`.
+        type: string
+        default: ""
+      target:
+        description: Dockerfile stage to build. Empty builds the last stage.
+        type: string
+        default: ""
+      build-args:
+        description: Build arguments, one `KEY=value` per line.
+        type: string
+        default: ""
+      push:
+        description: Push the images. Without a push, nothing is merged.
+        type: boolean
+        default: true
+      provenance:
+        description: Attach a SLSA provenance attestation to each platform.
+        type: boolean
+        default: true
+      reproducible:
+        description: Strip timestamps from the images.
+        type: boolean
+        default: false
+      cache:
+        description: Cache layers in `<destination repository>/cache`.
+        type: boolean
+        default: false
+      bootstrap:
+        description: Build an image that has files in `/kaniko` or `/busybox`, such as kaniko itself.
+        type: boolean
+        default: false
+      platforms:
+        description: Platforms to build, as a JSON list.
+        type: string
+        default: '["linux/amd64", "linux/arm64"]'
+      runners:
+        description: Runner label for each platform, as a JSON object.
+        type: string
+        default: '{"linux/amd64": "ubuntu-26.04", "linux/arm64": "ubuntu-26.04-arm"}'
+      merge-image:
+        description: Image with crane and jq that merges the platforms into one index.
+        type: string
+        default: registry.gitlab.com/osscontainertools/components/kaniko/merge:release-11b74ff77aae51e40166744b2c6e062c81633b84@sha256:322a2281f783d403be2b63ce88281f6ee54e9e08644d8f94628b5e23cdf6c4c8
+    outputs:
+      image:
+        description: The pushed index pinned by digest, `repo@sha256:...`.
+        value: ${{ jobs.merge.outputs.image }}
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform: ${{ fromJSON(inputs.platforms) }}
+    runs-on: ${{ fromJSON(inputs.runners)[matrix.platform] }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: src
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .kaniko-action
+      - id: suffix
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "suffix=$(echo "${PLATFORM#*/}" | tr / -)" >> "$GITHUB_OUTPUT"
+      - uses: ./.kaniko-action
+        with:
+          context: src/${{ inputs.context }}
+          dockerfile: ${{ inputs.dockerfile }}
+          destination: ${{ inputs.destination || format('ghcr.io/{0}:{1}', github.repository, github.ref_name) }}-${{ steps.suffix.outputs.suffix }}
+          target: ${{ inputs.target }}
+          build-args: ${{ inputs.build-args }}
+          push: ${{ inputs.push }}
+          provenance: ${{ inputs.provenance }}
+          reproducible: ${{ inputs.reproducible }}
+          cache: ${{ inputs.cache }}
+          bootstrap: ${{ inputs.bootstrap }}
+
+  merge:
+    if: inputs.push
+    needs: build
+    runs-on: ubuntu-26.04
+    outputs:
+      image: ${{ steps.merge.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .kaniko-action
+      - id: merge
+        env:
+          DESTINATION: ${{ inputs.destination || format('ghcr.io/{0}:{1}', github.repository, github.ref_name) }}
+          PLATFORMS: ${{ inputs.platforms }}
+          MERGE_IMAGE: ${{ inputs.merge-image }}
+          KANIKO_GHCR_IO_USER: ${{ github.actor }}
+          KANIKO_GHCR_IO_PASSWORD: ${{ github.token }}
+        run: |
+          leaves=""
+          for platform in $(echo "$PLATFORMS" | jq -r '.[]'); do
+            leaves="$leaves $DESTINATION-$(echo "${platform#*/}" | tr / -)"
+          done
+          image=$(docker run --rm \
+            --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATION="$DESTINATION" \
+            --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+            --volume "$GITHUB_WORKSPACE/.kaniko-action/merge.sh:/merge.sh:ro" --entrypoint sh \
+            "$MERGE_IMAGE" /merge.sh)
+          echo "image=$image" >> "$GITHUB_OUTPUT"

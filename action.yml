@@ -45,13 +45,28 @@ inputs:
   extra-args:
     description: Additional executor flags.
     default: ""
+  platforms:
+    description: Platforms to build, separated by commas, such as `linux/amd64,linux/arm64`. Platforms other than the runner's are emulated with QEMU, which needs a runner with Docker. Each is pushed as `<destination>-<arch>` and merged into one index at `destination`. Empty builds for the runner's platform only.
+    default: ""
   image:
     description: kaniko debug image to run the build in, when the job does not already run in a kaniko image.
     default: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
+  bootstrap:
+    description: Build an image that has files in `/kaniko` or `/busybox`, such as kaniko itself. Runs in `bootstrap-image` with `KANIKO_DIR=/kaniko2`. On Kubernetes, run the job in the bootstrap image.
+    default: "false"
+  bootstrap-image:
+    description: kaniko bootstrap image to run the build in, with `bootstrap` enabled.
+    default: ghcr.io/osscontainertools/kaniko:v1.29.1-bootstrap@sha256:2f0ce41081fadf9d4c06dda066ad13047ff6f3b5875edbfff616de50a42ad17e
+  merge-image:
+    description: Image with crane and jq that merges the platforms into one index.
+    default: registry.gitlab.com/osscontainertools/components/kaniko/merge:release-11b74ff77aae51e40166744b2c6e062c81633b84@sha256:322a2281f783d403be2b63ce88281f6ee54e9e08644d8f94628b5e23cdf6c4c8
+  binfmt-image:
+    description: Image that registers QEMU for the emulated platforms.
+    default: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
 
 outputs:
   image:
-    description: The pushed image pinned by digest, `repo@sha256:...`. The index digest when provenance is on.
+    description: The pushed image pinned by digest, `repo@sha256:...`. The index digest when provenance is on or with several platforms.
     value: ${{ steps.build.outputs.image }}
 
 runs:
@@ -73,6 +88,11 @@ runs:
         INPUT_RETRIES: ${{ inputs.retries }}
         INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
         INPUT_IMAGE: ${{ inputs.image }}
+        INPUT_PLATFORMS: ${{ inputs.platforms }}
+        INPUT_BOOTSTRAP: ${{ inputs.bootstrap }}
+        INPUT_BOOTSTRAP_IMAGE: ${{ inputs.bootstrap-image }}
+        INPUT_MERGE_IMAGE: ${{ inputs.merge-image }}
+        INPUT_BINFMT_IMAGE: ${{ inputs.binfmt-image }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         KANIKO_GHCR_IO_USER: ${{ github.actor }}
         KANIKO_GHCR_IO_PASSWORD: ${{ inputs.github-token }}

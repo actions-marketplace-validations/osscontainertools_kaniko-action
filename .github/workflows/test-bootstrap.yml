@@ -1,0 +1,33 @@
+# Bootstrap mode builds images with files in /kaniko or /busybox, which the
+# regular debug image leaves out of every layer. This is how kaniko builds
+# kaniko.
+name: test-bootstrap
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: build
+        uses: ./
+        with:
+          context: tests/bootstrap
+          destination: ghcr.io/${{ github.repository }}/test-bootstrap:${{ github.sha }}
+          bootstrap: true
+      - name: verify
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          test "$(docker run --rm "$IMAGE" cat /kaniko/marker)" = kaniko
+          test "$(docker run --rm "$IMAGE" cat /busybox/marker)" = busybox

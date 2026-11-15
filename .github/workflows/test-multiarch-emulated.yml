@@ -1,0 +1,36 @@
+# Multi-arch in one step on one runner: the action builds the runner's own
+# platform natively, emulates the others with QEMU, and merges them into one
+# index. Simple, but RUN steps under emulation are slow. For native speed, see
+# test-multiarch.yml.
+name: test-multiarch-emulated
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: build
+        uses: ./
+        with:
+          context: tests/multiarch
+          destination: ghcr.io/${{ github.repository }}/test-multiarch-emulated:${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+      - name: verify
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          test "$(docker buildx imagetools inspect --raw "$IMAGE" | jq -c '[.manifests[].platform | select(.os != "unknown") | .architecture] | sort')" = '["amd64","arm64"]'
+          for arch in amd64 arm64; do
+            test "$(docker run --rm --platform "linux/$arch" "$IMAGE" cat /arch)" = "$arch"
+          done
