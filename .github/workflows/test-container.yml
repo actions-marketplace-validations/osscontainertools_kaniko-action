@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-26.04
     container: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
     steps:
-      # A user writes `uses: osscontainertools/kaniko-action@8989cb3064846a06268985dea52f17ff4cd49b57 # v1.0.2`. This test
+      # A user writes `uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3`. This test
       # fetches the action at the commit under test instead.
       - name: fetch the action
         shell: sh

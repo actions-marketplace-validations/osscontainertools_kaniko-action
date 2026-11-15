@@ -40,9 +40,9 @@ Repository: `osscontainertools/kaniko-action` on github.com.
 
 7. **Show the version and notes to the user and wait for approval.** Do not tag before.
 
-8. **Tag.** The tag message becomes the release notes. The `release` workflow then moves the major tag, such as `v1`, to the same commit and publishes the GitHub release:
+8. **Tag.** The tag message becomes the release notes. `--cleanup=verbatim` keeps the `## ` headings. The `release` workflow then moves the major tag, such as `v1`, to the same commit and publishes the GitHub release:
    ```bash
-   git tag -a <version> -F <notes-file>
+   git tag -a --cleanup=verbatim <version> -F <notes-file>
    git push origin <version>
    ```
    Wait for the `release` run of the tag and stop if it fails.
