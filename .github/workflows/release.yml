@@ -1,0 +1,27 @@
+# Publishes a release for every version tag: the annotated tag's message
+# becomes the release notes, and the major tag, such as v1, moves to the same
+# commit.
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha)
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag" --jq .message > notes.md
+          major="${VERSION%%.*}"
+          git tag -f "$major" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$major"
+          gh release create "$VERSION" --title "$VERSION" --notes-file notes.md --verify-tag

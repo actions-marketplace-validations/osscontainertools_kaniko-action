@@ -39,15 +39,12 @@ Repository: `osscontainertools/kaniko-action` on github.com.
 
 7. **Show the version and notes to the user and wait for approval.** Do not tag before.
 
-8. **Tag and release.** Create the version tag, move the major tag to the same commit, and publish the GitHub release:
+8. **Tag.** The tag message becomes the release notes. The `release` workflow then moves the major tag, such as `v1`, to the same commit and publishes the GitHub release:
    ```bash
    git tag -a <version> -F <notes-file>
-   git tag -f -a <major> -m <major> <version>^{}
    git push origin <version>
-   git push -f origin <major>
-   gh release create <version> --repo osscontainertools/kaniko-action --title <version> --notes-file <notes-file> --verify-tag
    ```
-   `<major>` is `v` plus the major number, such as `v1`.
+   Wait for the `release` run of the tag and stop if it fails.
 
 9. **Publish to the Marketplace.** Ask the user to open the release's edit page, tick "Publish this Action to the GitHub Marketplace" and save. The CLI cannot do this.
 

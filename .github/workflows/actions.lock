@@ -8,6 +8,8 @@ workflows:
     '.github/workflows/pre-commit.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-python@v7.1.0'
+    '.github/workflows/release.yml':
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/test-bootstrap.yml':
         - 'actions/checkout@v7.0.1'
     '.github/workflows/test-build.yml':
