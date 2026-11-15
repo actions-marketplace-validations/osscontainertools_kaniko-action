@@ -42,7 +42,7 @@ jobs:
 |---|---|---|
 | Use | the action with `platforms` | the reusable workflow `multiarch.yml` |
 | Speed | native for the runner's platform, `RUN` steps of the others run under QEMU | native for every platform |
-| Runners | one runner with Docker | one runner per platform, Kubernetes included |
+| Runners | one runner with Docker | one runner with Docker per platform |
 
 Both push each platform as `<destination>-<arch>`, merge them into one index at `destination`, and hand it on as the `image` output.
 
