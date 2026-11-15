@@ -34,6 +34,7 @@ Repository: `osscontainertools/kaniko-action` on github.com.
      curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $T" -H "Accept: application/vnd.oci.image.index.v1+json" "https://registry.gitlab.com/v2/osscontainertools/components/kaniko/merge/manifests/${ref#*@}"
      ```
      Stop unless it prints `200`.
+   - If `name` in `action.yml` changed, it must not match any Marketplace action (`https://github.com/marketplace?type=actions&query=<name>`), case-insensitively, nor a GitHub user or organization (`gh api users/<name>` must return 404).
 
 6. **Write the release notes.** First line: `Ships kaniko v<kaniko-version>.` Then the sections that apply, in this order: `Breaking`, `Added`, `Fixed`, `Changed`. One line per change, naming the input, output or workflow and what a user observes. No em dashes, no semicolons. For a major, state for each breaking change what users have to edit in their workflows.
 
