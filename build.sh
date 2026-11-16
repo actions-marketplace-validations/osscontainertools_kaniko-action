@@ -7,16 +7,12 @@ if [ -z "$INPUT_DESTINATION" ]; then
   INPUT_DESTINATION=$("$GITHUB_ACTION_PATH/destination.sh")
 fi
 
-results="$RUNNER_TEMP/kaniko-$$"
-mkdir -p "$results"
 if [ -x /kaniko/executor ]; then
   direct=true
   root="$GITHUB_WORKSPACE"
-  out="$results"
 else
   direct=false
   root=/workspace
-  out=/kaniko/out
 fi
 
 image="$INPUT_IMAGE"
@@ -26,14 +22,28 @@ if [ "$INPUT_BOOTSTRAP" = true ]; then
   export KANIKO_DIR
 fi
 
+INPUT_CONTEXT=${INPUT_CONTEXT:-.}
+INPUT_DOCKERFILE=${INPUT_DOCKERFILE:-Dockerfile}
+context_dir="$GITHUB_WORKSPACE/$INPUT_CONTEXT"
+local_dockerfile="$context_dir/$INPUT_DOCKERFILE"
+case "$INPUT_DOCKERFILE" in
+  /*) local_dockerfile="$INPUT_DOCKERFILE" ;;
+esac
+
 # Without a checkout, as in a Kubernetes job that runs no JavaScript actions,
-# kaniko clones the triggering commit itself.
-if [ -d "$GITHUB_WORKSPACE/$INPUT_CONTEXT" ]; then
+# kaniko clones the triggering commit itself. An empty workspace directory is
+# not evidence of a checkout.
+if [ -d "$GITHUB_WORKSPACE/.git" ] ||
+  [ -f "$GITHUB_WORKSPACE/.git" ] ||
+  { [ -d "$context_dir" ] && [ -f "$local_dockerfile" ]; }; then
   context="$root/$INPUT_CONTEXT"
   case "$INPUT_DOCKERFILE" in
+    "$GITHUB_WORKSPACE"/*) dockerfile="$root${INPUT_DOCKERFILE#"$GITHUB_WORKSPACE"}" ;;
     /*) dockerfile="$INPUT_DOCKERFILE" ;;
     *) dockerfile="$context/$INPUT_DOCKERFILE" ;;
   esac
+  INPUT_LOCAL_CONTEXT="$context_dir"
+  INPUT_LOCAL_DOCKERFILE="$local_dockerfile"
   set --
 else
   # The bare SHA makes kaniko fetch the commit itself, which also reaches the
@@ -44,6 +54,19 @@ else
   GIT_USERNAME=x-access-token
   GIT_PASSWORD="$INPUT_GITHUB_TOKEN"
   export GIT_USERNAME GIT_PASSWORD
+fi
+
+INPUT_DIRECT=$direct \
+  INPUT_LOCAL_CONTEXT="${INPUT_LOCAL_CONTEXT:-}" \
+  INPUT_LOCAL_DOCKERFILE="${INPUT_LOCAL_DOCKERFILE:-}" \
+  sh "$GITHUB_ACTION_PATH/preflight.sh"
+
+results="$RUNNER_TEMP/kaniko-$$"
+mkdir -p "$results"
+if [ "$direct" = true ]; then
+  out="$results"
+else
+  out=/kaniko/out
 fi
 
 set -- "$@" \
@@ -75,10 +98,6 @@ case "$INPUT_CACHE" in
       set -- "$@" "--cache-to=$cache_to"
     fi
     ;;
-  *)
-    echo "cache is $INPUT_CACHE, choose off, on or split" >&2
-    exit 1
-    ;;
 esac
 
 if [ "$INPUT_GITHUB_TOKEN_SECRET" = true ]; then
@@ -103,10 +122,6 @@ done
 case "$INPUT_TELEMETRY" in
   off) ;;
   firn | custom)
-    if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
-      echo "telemetry needs the job permission id-token: write" >&2
-      exit 1
-    fi
     KANIKO_TELEMETRY_ID_TOKEN=$(wget -q -O - --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=kaniko-telemetry" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
     echo "::add-mask::$KANIKO_TELEMETRY_ID_TOKEN"
     if [ "$INPUT_TELEMETRY" = firn ]; then
@@ -117,10 +132,6 @@ case "$INPUT_TELEMETRY" in
       KANIKO_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT="$INPUT_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT"
     fi
     export KANIKO_TELEMETRY_ID_TOKEN KANIKO_TELEMETRY_ENDPOINT KANIKO_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT
-    ;;
-  *)
-    echo "telemetry is $INPUT_TELEMETRY, choose off, firn or custom" >&2
-    exit 1
     ;;
 esac
 
@@ -202,10 +213,10 @@ if [ -z "$INPUT_PLATFORMS" ]; then
   exit 0
 fi
 
-if [ "$direct" = true ]; then
-  echo "platforms needs a runner with Docker to emulate the other architectures. On Kubernetes, use the multiarch workflow with a native runner per platform." >&2
-  exit 1
-fi
+case "${INPUT_DESTINATION##*/}" in
+  *:*) ;;
+  *) INPUT_DESTINATION="$INPUT_DESTINATION:latest" ;;
+esac
 
 platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
 arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
