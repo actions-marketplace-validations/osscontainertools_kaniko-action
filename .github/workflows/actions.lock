@@ -24,6 +24,8 @@ workflows:
     '.github/workflows/test-multiarch-emulated.yml':
         - 'actions/checkout@v7.0.1'
     '.github/workflows/test-multiarch.yml': []
+    '.github/workflows/test-sign.yml':
+        - 'actions/checkout@v7.0.1'
 dependencies:
     'actions/checkout@v7.0.1':
         ref: 'v7.0.1'

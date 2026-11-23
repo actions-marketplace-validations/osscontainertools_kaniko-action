@@ -21,6 +21,19 @@ validate_boolean profile-buildkit "$INPUT_PROFILE_BUILDKIT"
 validate_boolean provenance "$INPUT_PROVENANCE"
 validate_boolean predefined-annotations "$INPUT_PREDEFINED_ANNOTATIONS"
 validate_boolean bootstrap "$INPUT_BOOTSTRAP"
+validate_boolean tlog "$INPUT_TLOG"
+
+case "$INPUT_COSIGN" in
+  off | keyless | key) ;;
+  *) fail "cosign must be off, keyless or key, got '$INPUT_COSIGN'" ;;
+esac
+
+if [ "$INPUT_COSIGN" = keyless ]; then
+  [ "$INPUT_TLOG" = true ] || fail "keyless signing needs tlog"
+  [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] &&
+    [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] ||
+    fail "keyless signing needs the job permission id-token: write"
+fi
 
 case "$INPUT_CACHE" in
   off | on | split) ;;
@@ -78,6 +91,9 @@ fi
 
 if [ -n "$INPUT_PLATFORMS" ] && [ "$INPUT_DIRECT" = true ]; then
   fail "platforms needs a runner with Docker; use the multiarch workflow on Kubernetes"
+fi
+if [ "$INPUT_COSIGN" != off ] && [ "$INPUT_DIRECT" = true ]; then
+  fail "cosign needs a runner with Docker"
 fi
 if [ "$INPUT_DIRECT" != true ]; then
   command -v docker >/dev/null 2>&1 || fail "Docker is required to run kaniko in a container"

@@ -75,6 +75,18 @@ inputs:
   bootstrap-image:
     description: kaniko bootstrap image to run the build in, with `bootstrap` enabled.
     default: ghcr.io/osscontainertools/kaniko:v1.29.2-bootstrap@sha256:f58026e2f55b7bdc8dd8c702cc92f548b3e5d8c10f7eda4070aed86a0c2cd1e4
+  cosign:
+    description: "Sign the pushed image with cosign: `off`, `keyless` or `key`. `keyless` signs with the job's ID token through Sigstore's public Fulcio and needs `id-token: write`. `key` signs with `cosign-key`. Needs a runner with Docker."
+    default: "off"
+  cosign-key:
+    description: Key to sign with, with `cosign` set to `key`, as `env://<variable>`. cosign reads its password from `COSIGN_PASSWORD`. Set both in the step's `env`.
+    default: env://COSIGN_PRIVATE_KEY
+  tlog:
+    description: Record the signature in Sigstore's public Rekor transparency log. Keyless signing needs it. Turn it off to keep a key's signatures private.
+    default: "true"
+  sign-image:
+    description: Image with cosign, crane and jq that signs the image.
+    default: registry.gitlab.com/osscontainertools/components/kaniko/sign:release-018d8426701f196bd5dac1f2d816ec7a90981044@sha256:f41302b91c8b93674140c4d707cf78b3beb285416d17fa92a274a2a5ed1c9dd9
   merge-image:
     description: Image with crane and jq that merges the platforms into one index.
     default: registry.gitlab.com/osscontainertools/components/kaniko/merge:release-11b74ff77aae51e40166744b2c6e062c81633b84@sha256:322a2281f783d403be2b63ce88281f6ee54e9e08644d8f94628b5e23cdf6c4c8
@@ -116,6 +128,10 @@ runs:
         INPUT_PLATFORMS: ${{ inputs.platforms }}
         INPUT_BOOTSTRAP: ${{ inputs.bootstrap }}
         INPUT_BOOTSTRAP_IMAGE: ${{ inputs.bootstrap-image }}
+        INPUT_COSIGN: ${{ inputs.cosign }}
+        INPUT_COSIGN_KEY: ${{ inputs.cosign-key }}
+        INPUT_TLOG: ${{ inputs.tlog }}
+        INPUT_SIGN_IMAGE: ${{ inputs.sign-image }}
         INPUT_MERGE_IMAGE: ${{ inputs.merge-image }}
         INPUT_BINFMT_IMAGE: ${{ inputs.binfmt-image }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
