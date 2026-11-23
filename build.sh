@@ -1,11 +1,21 @@
 #!/bin/sh
 # Runs kaniko directly when the job already runs in a kaniko image, such as a
 # Kubernetes runner, and in its own container through Docker otherwise.
-set -eu
+# Word splitting without pathname expansion throughout.
+set -euf
 
 if [ -z "$INPUT_DESTINATION" ]; then
   INPUT_DESTINATION=$("$GITHUB_ACTION_PATH/destination.sh")
 fi
+# shellcheck disable=SC2086 # destination holds several references
+set -- $INPUT_DESTINATION
+destination=$1
+shift
+extra_destinations="$*"
+repo="${destination%@*}"
+case "${repo##*/}" in
+  *:*) repo="${repo%:*}" ;;
+esac
 
 if [ -x /kaniko/executor ]; then
   direct=true
@@ -83,10 +93,6 @@ case "$INPUT_CACHE" in
   off) ;;
   on) set -- "$@" --cache=true ;;
   split)
-    repo="${INPUT_DESTINATION%@*}"
-    case "${repo##*/}" in
-      *:*) repo="${repo%:*}" ;;
-    esac
     set -- "$@" "--cache-from=$repo/cache"
     cache_to="$repo/cache"
     if [ "$GITHUB_REF" != "refs/heads/$INPUT_DEFAULT_BRANCH" ]; then
@@ -145,14 +151,15 @@ EOF
 # shellcheck disable=SC2086 # extra-args holds several flags
 set -- "$@" $INPUT_EXTRA_ARGS
 
-# Builds one image and writes it, pinned by digest, to $results/<name>/ref.
+# Builds one image and writes it, pinned by digest in $repo, to
+# $results/<name>/ref.
 # Arguments: destination, platform or empty, name, then the shared flags.
 build() {
-  destination="$1"
+  push_to="$1"
   platform="$2"
   name="$3"
   shift 3
-  set -- "$@" --destination="$destination" --image-name-with-digest-file="$out/$name/image"
+  set -- "$@" --destination="$push_to" --image-name-with-digest-file="$out/$name/image"
   if [ -n "$platform" ]; then
     set -- "$@" --custom-platform="$platform"
   fi
@@ -196,25 +203,29 @@ build() {
   fi
 
   if [ "$INPUT_PUSH" = true ]; then
-    ref=$(head -n 1 "$results/$name/image")
+    digest=$(head -n 1 "$results/$name/image")
+    digest="${digest#*@}"
     if [ -s "$results/$name/index" ]; then
-      ref="${ref%@*}@sha256:$(sha256sum "$results/$name/index" | cut -d ' ' -f 1)"
+      digest="sha256:$(sha256sum "$results/$name/index" | cut -d ' ' -f 1)"
     fi
-    echo "$ref" > "$results/$name/ref"
+    echo "$repo@$digest" > "$results/$name/ref"
   fi
 }
 
 if [ -z "$INPUT_PLATFORMS" ]; then
-  build "$INPUT_DESTINATION" "" image "$@"
+  for extra in $extra_destinations; do
+    set -- "$@" "--destination=$extra"
+  done
+  build "$destination" "" image "$@"
   if [ "$INPUT_PUSH" = true ]; then
     echo "image=$(cat "$results/image/ref")" >> "$GITHUB_OUTPUT"
   fi
   exit 0
 fi
 
-case "${INPUT_DESTINATION##*/}" in
+case "${destination##*/}" in
   *:*) ;;
-  *) INPUT_DESTINATION="$INPUT_DESTINATION:latest" ;;
+  *) destination="$destination:latest" ;;
 esac
 
 platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
@@ -224,7 +235,7 @@ docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
 leaves=""
 for platform in $platforms; do
   suffix=$(echo "${platform#*/}" | tr '/' '-')
-  build "$INPUT_DESTINATION-$suffix" "$platform" "$suffix" "$@"
+  build "$destination-$suffix" "$platform" "$suffix" "$@"
   if [ "$INPUT_PUSH" = true ]; then
     leaves="$leaves $(cat "$results/$suffix/ref")"
   fi
@@ -237,7 +248,7 @@ if [ "$INPUT_PUSH" = true ]; then
   fi
   # shellcheck disable=SC2086 # the flag list is word-split on purpose
   merged=$(docker run --rm $config_flags \
-    --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATION="$INPUT_DESTINATION" \
+    --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATIONS="$destination $extra_destinations" \
     --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
     --volume "$GITHUB_ACTION_PATH/merge.sh:/merge.sh:ro" --entrypoint sh \
     "$INPUT_MERGE_IMAGE" /merge.sh)

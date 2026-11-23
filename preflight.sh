@@ -69,10 +69,6 @@ if [ -n "$INPUT_PLATFORMS" ]; then
   done
 fi
 
-case "$INPUT_DESTINATION" in
-  *[[:space:]]*) fail "destination must be one image reference, got '$INPUT_DESTINATION'" ;;
-esac
-
 if [ -n "${INPUT_LOCAL_CONTEXT:-}" ]; then
   [ -d "$INPUT_LOCAL_CONTEXT" ] ||
     fail "context directory does not exist: '$INPUT_LOCAL_CONTEXT'"
