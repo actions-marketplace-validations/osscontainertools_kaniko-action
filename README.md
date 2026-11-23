@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: build
-        uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+        uses: osscontainertools/kaniko-action@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0
       - run: echo "pushed ${{ steps.build.outputs.image }}"
 ```
 
@@ -33,7 +33,7 @@ jobs:
     runs-on: arc-runner-set
     container: ghcr.io/osscontainertools/kaniko:v1.29.2-debug
     steps:
-      - uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+      - uses: osscontainertools/kaniko-action@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0
 ```
 
 ## Build a multi-arch image
@@ -50,7 +50,7 @@ One job, emulated:
 
 ```yaml
       - id: build
-        uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+        uses: osscontainertools/kaniko-action@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0
         with:
           platforms: linux/amd64,linux/arm64
 ```
@@ -60,7 +60,7 @@ One runner per platform, at native speed. The workflow runs as a job of its own,
 ```yaml
 jobs:
   image:
-    uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+    uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0
     permissions:
       contents: read
       packages: write
@@ -94,7 +94,7 @@ target "tools" {
 
 ```yaml
       - id: bake
-        uses: osscontainertools/kaniko-action/bake@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+        uses: osscontainertools/kaniko-action/bake@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0
         with:
           targets: app tools
           set: |
@@ -107,7 +107,7 @@ target "tools" {
 ```yaml
 jobs:
   images:
-    uses: osscontainertools/kaniko-action/.github/workflows/bake-multiarch.yml@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+    uses: osscontainertools/kaniko-action/.github/workflows/bake-multiarch.yml@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0
     permissions:
       contents: read
       packages: write
@@ -138,7 +138,7 @@ cosign verify \
 To sign with a key, put it and its password in secrets, and turn the transparency log off to keep the signatures private:
 
 ```yaml
-      - uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+      - uses: osscontainertools/kaniko-action@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}

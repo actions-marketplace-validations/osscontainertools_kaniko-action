@@ -1,7 +1,7 @@
 # Multi-arch at native speed: the reusable workflow builds each platform on its
 # own runner and merges them into one index. Later jobs read the index from the
 # `image` output. A user writes
-# `uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3`.
+# `uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0`.
 # The merge job signs the index keylessly and attaches an SBOM to each platform.
 # The runners share no registry but ghcr.io, so pull requests from forks skip it.
 name: test-multiarch

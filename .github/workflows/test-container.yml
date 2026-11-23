@@ -19,7 +19,7 @@ jobs:
       registry:
         image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
     steps:
-      # A user writes `uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3`. This test
+      # A user writes `uses: osscontainertools/kaniko-action@ceb92e98221fffab4125600c76fffa6eda8ac17d # v1.1.0`. This test
       # fetches the action at the commit under test instead.
       - name: fetch the action
         shell: sh
