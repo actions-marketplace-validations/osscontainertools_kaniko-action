@@ -102,6 +102,8 @@ target "tools" {
       - run: echo "pushed ${{ fromJSON(steps.bake.outputs.images).app }}"
 ```
 
+`platforms` builds every target for each platform, emulated as with the action, and merges each target into one index at its destinations.
+
 `cosign`, `tlog` and `sbom` sign each image and attach its SBOMs, as for one image, see [Signing](#signing).
 
 Bake needs a checkout. On Kubernetes, run the job in an image with crane and jq next to kaniko, such as the GitLab component's [bake image](https://gitlab.com/osscontainertools/components/kaniko/-/blob/main/images/bake/Dockerfile), to read the digests of what it pushed.

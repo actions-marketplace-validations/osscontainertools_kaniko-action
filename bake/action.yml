@@ -18,6 +18,9 @@ inputs:
   context:
     description: Build context directory, relative to the workspace, for targets that do not set their own.
     default: .
+  platforms:
+    description: Platforms to build, separated by commas, such as `linux/amd64,linux/arm64`. Platforms other than the runner's are emulated with QEMU, which needs a runner with Docker. Each target is pushed as `<first destination>-<arch>` per platform, tagged `latest-<arch>` when the first destination has no tag, and merged into one index at every destination. Empty builds for the runner's platform only.
+    default: ""
   push:
     description: Push the images and the layer cache. Without a push, the `images` output stays empty, and only targets with their own `cache_to` still write their cache.
     default: "true"
@@ -85,8 +88,11 @@ inputs:
     description: Image with cosign, crane, jq and syft that signs the images and scans them.
     default: registry.gitlab.com/osscontainertools/components/kaniko/sign:release-018d8426701f196bd5dac1f2d816ec7a90981044@sha256:f41302b91c8b93674140c4d707cf78b3beb285416d17fa92a274a2a5ed1c9dd9
   merge-image:
-    description: Image with crane and jq that reads the digests of the pushed images.
+    description: Image with crane and jq that reads the digests of the pushed images and merges the platforms.
     default: registry.gitlab.com/osscontainertools/components/kaniko/merge:release-11b74ff77aae51e40166744b2c6e062c81633b84@sha256:322a2281f783d403be2b63ce88281f6ee54e9e08644d8f94628b5e23cdf6c4c8
+  binfmt-image:
+    description: Image that registers QEMU for the emulated platforms.
+    default: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
 
 outputs:
   images:
@@ -103,6 +109,7 @@ runs:
         INPUT_TARGETS: ${{ inputs.targets }}
         INPUT_SET: ${{ inputs.set }}
         INPUT_CONTEXT: ${{ inputs.context }}
+        INPUT_PLATFORMS: ${{ inputs.platforms }}
         INPUT_PUSH: ${{ inputs.push }}
         INPUT_REPRODUCIBLE: ${{ inputs.reproducible }}
         INPUT_CACHE: ${{ inputs.cache }}
@@ -126,14 +133,13 @@ runs:
         INPUT_SBOM: ${{ inputs.sbom }}
         INPUT_SIGN_IMAGE: ${{ inputs.sign-image }}
         INPUT_MERGE_IMAGE: ${{ inputs.merge-image }}
+        INPUT_BINFMT_IMAGE: ${{ inputs.binfmt-image }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         # The inputs of the action one level up that bake does not take.
         INPUT_DOCKERFILE: Dockerfile
         INPUT_DESTINATION: ""
         INPUT_TARGET: ""
         INPUT_BUILD_ARGS: ""
-        INPUT_PLATFORMS: ""
-        INPUT_BINFMT_IMAGE: ""
         KANIKO_GHCR_IO_USER: ${{ github.actor }}
         KANIKO_GHCR_IO_PASSWORD: ${{ inputs.github-token }}
       run: GITHUB_ACTION_PATH="${GITHUB_ACTION_PATH%/bake}" "${GITHUB_ACTION_PATH%/bake}/build.sh"

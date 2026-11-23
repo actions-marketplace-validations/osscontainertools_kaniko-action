@@ -234,6 +234,51 @@ if [ -f "$HOME/.docker/config.json" ]; then
   helper_config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro"
 fi
 
+# Prints the image of each target in the bake targets JSON $1 as bake.sh does.
+bake_images() {
+  if [ "$direct" = true ]; then
+    BAKE_TARGETS="$1" sh "$GITHUB_ACTION_PATH/bake.sh"
+    return
+  fi
+  # shellcheck disable=SC2086 # the flag list is word-split on purpose
+  docker run --rm $helper_config_flags \
+    --env BAKE_TARGETS="$1" --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+    --volume "$GITHUB_ACTION_PATH/bake.sh:/bake.sh:ro" --entrypoint sh \
+    "$INPUT_MERGE_IMAGE" /bake.sh
+}
+
+# jq: the image reference tagged `latest` when it has no tag.
+tagged='def tagged: if split("/")[-1] | contains(":") then . else . + ":latest" end;'
+
+# Bakes every target with a destination for one platform, pushed to
+# `<first destination>-<suffix>`, and with a push prints the images as
+# bake.sh does.
+# Arguments: suffix, platform or empty, then the bake arguments without
+# destination overrides.
+bake_platform() {
+  suffix="$1"
+  platform="$2"
+  shift 2
+  platform_targets=$(printf '%s' "$BAKE_TARGETS" | jq -c --arg suffix "$suffix" "$tagged"'
+    .target |= with_entries(select(.value.destination | length > 0) | .value.destination |= [(.[0] | tagged) + "-" + $suffix])')
+  for override in $(printf '%s' "$platform_targets" | jq -r '.target | to_entries[] | "--set=\(.key).destination=\(.value.destination[0])"'); do
+    set -- "$@" "$override"
+  done
+  if [ -n "$platform" ]; then
+    set -- "$@" --custom-platform="$platform"
+  fi
+  run false "$@" >&2
+  if [ "$INPUT_PUSH" = true ]; then
+    bake_images "$platform_targets"
+  fi
+}
+
+if [ -n "$INPUT_PLATFORMS" ]; then
+  platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
+  arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
+  docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
+fi
+
 if [ -n "$INPUT_BAKEFILE" ]; then
   while IFS= read -r line; do
     if [ -n "$line" ]; then
@@ -259,15 +304,43 @@ EOF
       *) set -- "$@" --no-push-cache ;;
     esac
   fi
-  run false "$@"
-  if [ "$INPUT_PUSH" = true ] && [ "$direct" = true ]; then
-    images=$(sh "$GITHUB_ACTION_PATH/bake.sh")
-  elif [ "$INPUT_PUSH" = true ]; then
-    # shellcheck disable=SC2086 # the flag list is word-split on purpose
-    images=$(docker run --rm $helper_config_flags \
-      --env BAKE_TARGETS --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
-      --volume "$GITHUB_ACTION_PATH/bake.sh:/bake.sh:ro" --entrypoint sh \
-      "$INPUT_MERGE_IMAGE" /bake.sh)
+  if [ -z "$INPUT_PLATFORMS" ]; then
+    run false "$@"
+    if [ "$INPUT_PUSH" = true ]; then
+      images=$(bake_images "$BAKE_TARGETS")
+    fi
+  else
+    # Each platform replaces the destinations, the merge pushes to them.
+    for arg do
+      shift
+      case "$arg" in
+        --set=*.destination=*) ;;
+        *) set -- "$@" "$arg" ;;
+      esac
+    done
+    leaves='{}'
+    for platform in $platforms; do
+      platform_images=$(bake_platform "$(echo "${platform#*/}" | tr '/' '-')" "$platform" "$@")
+      if [ "$INPUT_PUSH" = true ]; then
+        leaves=$(jq -cn --argjson leaves "$leaves" --argjson images "$platform_images" \
+          'reduce ($images | to_entries[]) as $e ($leaves; .[$e.key] += [$e.value])')
+      fi
+    done
+    merges=$(printf '%s' "$BAKE_TARGETS" | jq -r --argjson leaves "$leaves" "$tagged"'
+      .target as $targets | $leaves | to_entries[] | "\(.key) \(.value | join(",")) \($targets[.key].destination | .[0] |= tagged | join(" "))"')
+    images='{}'
+    while read -r target refs destinations; do
+      [ -n "$target" ] || continue
+      # shellcheck disable=SC2086 # the flag list is word-split on purpose
+      merged=$(docker run --rm $helper_config_flags \
+        --env MERGE_IMAGES="$(echo "$refs" | tr ',' ' ')" --env MERGE_DESTINATIONS="$destinations" \
+        --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+        --volume "$GITHUB_ACTION_PATH/merge.sh:/merge.sh:ro" --entrypoint sh \
+        "$INPUT_MERGE_IMAGE" /merge.sh)
+      images=$(jq -cn --argjson images "$images" --arg target "$target" --arg image "$merged" '$images + {($target): $image}')
+    done <<EOF
+$merges
+EOF
   fi
 elif [ -z "$INPUT_PLATFORMS" ]; then
   for extra in $extra_destinations; do
@@ -282,10 +355,6 @@ else
     *:*) ;;
     *) destination="$destination:latest" ;;
   esac
-
-  platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
-  arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
-  docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
 
   leaves=""
   for platform in $platforms; do
