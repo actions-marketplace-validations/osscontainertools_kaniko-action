@@ -1,5 +1,6 @@
-# Signing with cosign. With a key and without the transparency log the
-# signature stays private, which runs on pull requests from forks too. Keyless
+# Signing with cosign, and a signed SBOM of each platform. With a key and
+# without the transparency log the signatures stay private, which runs on pull
+# requests from forks too. Keyless
 # signing needs `id-token: write`, which pull requests from forks lack.
 name: test-sign
 
@@ -50,12 +51,18 @@ jobs:
           target: base
           cosign: key
           tlog: false
+          sbom: true
       - name: verify
         env:
           IMAGE: ${{ steps.build.outputs.image }}
         run: |
-          docker run --rm --network host --volume "$RUNNER_TEMP/keys:/keys:ro" --entrypoint cosign "$SIGN_IMAGE" \
-            verify --key /keys/cosign.pub --insecure-ignore-tlog "localhost:5000/${IMAGE#*/}"
+          ref="localhost:5000/${IMAGE#*/}"
+          cosign() {
+            docker run --rm --network host --volume "$RUNNER_TEMP/keys:/keys:ro" --entrypoint cosign "$SIGN_IMAGE" "$@"
+          }
+          cosign verify --key /keys/cosign.pub --insecure-ignore-tlog "$ref"
+          digest=$(docker run --rm --network host --entrypoint crane "$SIGN_IMAGE" manifest "$ref" | jq -r '.manifests[] | select(.platform.os != "unknown") | .digest')
+          cosign verify-attestation --type spdxjson --key /keys/cosign.pub --insecure-ignore-tlog "${ref%@*}@$digest" > /dev/null
 
   keyless:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

@@ -22,7 +22,8 @@ INPUT_DIRECT=true
 INPUT_DESTINATION=ghcr.io/example/image:latest
 INPUT_COSIGN=off
 INPUT_TLOG=true
-export INPUT_COSIGN INPUT_TLOG
+INPUT_SBOM=false
+export INPUT_COSIGN INPUT_TLOG INPUT_SBOM
 export INPUT_PUSH INPUT_REPRODUCIBLE INPUT_GITHUB_TOKEN_SECRET
 export INPUT_PROFILE_PREVIEW INPUT_PROFILE_BUILDKIT INPUT_PROVENANCE
 export INPUT_PREDEFINED_ANNOTATIONS INPUT_BOOTSTRAP INPUT_CACHE INPUT_TELEMETRY
@@ -66,6 +67,7 @@ expect_failure "missing custom telemetry endpoint" "telemetry-endpoint is requir
 expect_failure "direct multiarch" "needs a runner with Docker" \
   INPUT_PLATFORMS=linux/amd64 INPUT_DIRECT=true
 expect_failure "bad cosign" "cosign must be off, keyless or key" INPUT_COSIGN=on
+expect_failure "sbom without cosign" "sbom needs cosign" INPUT_SBOM=true
 expect_failure "keyless without tlog" "keyless signing needs tlog" \
   INPUT_COSIGN=keyless INPUT_TLOG=false
 expect_failure "keyless without id-token" "needs the job permission id-token: write" \

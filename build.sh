@@ -272,7 +272,7 @@ if [ "$INPUT_COSIGN" != off ]; then
   # shellcheck disable=SC2086 # the flag lists are word-split on purpose
   docker run --rm $helper_config_flags $key_flags \
     --env SIGN_IMAGE="$image" --env SIGN_COSIGN="$INPUT_COSIGN" --env SIGN_KEY="$INPUT_COSIGN_KEY" \
-    --env SIGN_TLOG="$INPUT_TLOG" --env SIGN_SERVER_URL="$GITHUB_SERVER_URL" --env SIGN_ID_TOKEN \
+    --env SIGN_TLOG="$INPUT_TLOG" --env SIGN_SBOM="$INPUT_SBOM" --env SIGN_SERVER_URL="$GITHUB_SERVER_URL" --env SIGN_ID_TOKEN \
     --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
     --env COSIGN_PASSWORD --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
     --volume "$GITHUB_ACTION_PATH/sign.sh:/sign.sh:ro" --entrypoint sh \

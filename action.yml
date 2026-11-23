@@ -84,8 +84,11 @@ inputs:
   tlog:
     description: Record the signature in Sigstore's public Rekor transparency log. Keyless signing needs it. Turn it off to keep a key's signatures private.
     default: "true"
+  sbom:
+    description: Attach a signed SPDX SBOM to each platform, scanned with syft. Needs `cosign`.
+    default: "false"
   sign-image:
-    description: Image with cosign, crane and jq that signs the image.
+    description: Image with cosign, crane, jq and syft that signs the image and scans it.
     default: registry.gitlab.com/osscontainertools/components/kaniko/sign:release-018d8426701f196bd5dac1f2d816ec7a90981044@sha256:f41302b91c8b93674140c4d707cf78b3beb285416d17fa92a274a2a5ed1c9dd9
   merge-image:
     description: Image with crane and jq that merges the platforms into one index.
@@ -131,6 +134,7 @@ runs:
         INPUT_COSIGN: ${{ inputs.cosign }}
         INPUT_COSIGN_KEY: ${{ inputs.cosign-key }}
         INPUT_TLOG: ${{ inputs.tlog }}
+        INPUT_SBOM: ${{ inputs.sbom }}
         INPUT_SIGN_IMAGE: ${{ inputs.sign-image }}
         INPUT_MERGE_IMAGE: ${{ inputs.merge-image }}
         INPUT_BINFMT_IMAGE: ${{ inputs.binfmt-image }}
