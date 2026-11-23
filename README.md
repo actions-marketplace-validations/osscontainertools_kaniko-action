@@ -31,7 +31,7 @@ The action works the same on GitHub's hosted runners and on Kubernetes runners w
 jobs:
   image:
     runs-on: arc-runner-set
-    container: ghcr.io/osscontainertools/kaniko:v1.29.1-debug
+    container: ghcr.io/osscontainertools/kaniko:v1.29.2-debug
     steps:
       - uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
 ```
@@ -73,9 +73,40 @@ jobs:
 
 By default it builds `linux/amd64` and `linux/arm64` on GitHub's `ubuntu-26.04` and `ubuntu-26.04-arm` runners. On your own runners, set `runners`, for example `'{"linux/amd64": "arc-amd64", "linux/arm64": "arc-arm64"}'`.
 
+## Signing
+
+`cosign: keyless` signs the image with [cosign](https://github.com/sigstore/cosign) and the job's ID token, which needs `id-token: write`. The signature names the workflow and the branch or tag that built the image. Verify a release with:
+
+```sh
+cosign verify \
+  --certificate-identity 'https://github.com/my-org/my-repo/.github/workflows/release.yml@refs/tags/v1.2.0' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/my-org/my-repo@sha256:...
+```
+
+To sign with a key, put it and its password in secrets, and turn the transparency log off to keep the signatures private:
+
+```yaml
+      - uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        with:
+          cosign: key
+          tlog: false
+```
+
+Verify with `cosign verify --key cosign.pub --insecure-ignore-tlog <image>`.
+
+`sbom: true` also attaches a signed SPDX SBOM to each platform, scanned with syft. Read it with `cosign verify-attestation --type spdxjson`, the same flags and the platform's digest.
+
+The reusable workflow `multiarch.yml` signs the index in its merge job with the same `cosign`, `tlog` and `sbom` inputs, and takes a key as the secrets `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD`. Keyless, the signature names `multiarch.yml` at the caller's ref.
+
+An image that already has a signature or SBOM from the same signer keeps it, so a rebuild to the same digest attaches no second one.
+
 ## Defaults
 
-The action retries pulls, base image extraction and the push three times, attaches a SLSA provenance attestation, and annotates the image with the commit it was built from. Each of these is an input, see [`action.yml`](action.yml).
+The action retries pulls and the push three times, attaches a SLSA provenance attestation, and annotates the image with the commit it was built from. Each of these is an input, see [`action.yml`](action.yml).
 
 ## Examples
 

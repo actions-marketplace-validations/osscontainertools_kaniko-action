@@ -1,11 +1,21 @@
 #!/bin/sh
 # Runs kaniko directly when the job already runs in a kaniko image, such as a
 # Kubernetes runner, and in its own container through Docker otherwise.
-set -eu
+# Word splitting without pathname expansion throughout.
+set -euf
 
 if [ -z "$INPUT_DESTINATION" ]; then
   INPUT_DESTINATION=$("$GITHUB_ACTION_PATH/destination.sh")
 fi
+# shellcheck disable=SC2086 # destination holds several references
+set -- $INPUT_DESTINATION
+destination=$1
+shift
+extra_destinations="$*"
+repo="${destination%@*}"
+case "${repo##*/}" in
+  *:*) repo="${repo%:*}" ;;
+esac
 
 if [ -x /kaniko/executor ]; then
   direct=true
@@ -75,7 +85,6 @@ set -- "$@" \
   --target="$INPUT_TARGET" \
   --push-retry="$INPUT_RETRIES" \
   --image-download-retry="$INPUT_RETRIES" \
-  --image-fs-extract-retry="$INPUT_RETRIES" \
   --predefined-annotations="$INPUT_PREDEFINED_ANNOTATIONS" \
   --reproducible="$INPUT_REPRODUCIBLE" \
   --credential-helpers=env
@@ -84,10 +93,6 @@ case "$INPUT_CACHE" in
   off) ;;
   on) set -- "$@" --cache=true ;;
   split)
-    repo="${INPUT_DESTINATION%@*}"
-    case "${repo##*/}" in
-      *:*) repo="${repo%:*}" ;;
-    esac
     set -- "$@" "--cache-from=$repo/cache"
     cache_to="$repo/cache"
     if [ "$GITHUB_REF" != "refs/heads/$INPUT_DEFAULT_BRANCH" ]; then
@@ -102,14 +107,15 @@ esac
 
 if [ "$INPUT_GITHUB_TOKEN_SECRET" = true ]; then
   KANIKO_SECRET_GITHUB_TOKEN="$INPUT_GITHUB_TOKEN"
-  export KANIKO_SECRET_GITHUB_TOKEN
-  set -- "$@" --secret=id=github_token,env=KANIKO_SECRET_GITHUB_TOKEN
+  KANIKO_SECRET_NETRC="machine ${GITHUB_SERVER_URL#*://} login x-access-token password $INPUT_GITHUB_TOKEN"
+  export KANIKO_SECRET_GITHUB_TOKEN KANIKO_SECRET_NETRC
+  set -- "$@" --secret=id=github_token,env=KANIKO_SECRET_GITHUB_TOKEN --secret=id=netrc,env=KANIKO_SECRET_NETRC
 fi
 
-# The profiles mirror the README of the kaniko version `image` pins.
+# The profiles mirror docs/feature-flags.md of the kaniko version `image` pins.
 profile_flags=""
 if [ "$INPUT_PROFILE_PREVIEW" = true ]; then
-  profile_flags="$profile_flags ADD_CHOWN_TAR ADD_FOLLOW_SYMLINK CACHE_COPY_FROM CACHE_IMAGE_INDEX COPY_KEEP_DEST_OWNER COPY_LINK COPY_SUBDIR_MODE DEFER_CACHE_PUSH FORMAT_INDEPENDENT_CACHE_KEY ISOLATE_CACHE_PUSH LOCAL_UNPACK_REQUIRES_TAR NATIVE_INIT PARALLEL_HASH RUN_CROSS_STAGE_BIND_MOUNT RUN_HEREDOC_SCRIPT RUN_MOUNT_BIND_RELATIVE RUN_MOUNT_TMPFS SNAPSHOT_TRACK_CACHED_LAYERS WARMER_BUILD_ARGS WARMER_PREDEFINED_ARGS"
+  profile_flags="$profile_flags ADD_CHOWN_TAR ADD_FOLLOW_SYMLINK ALIGN_HISTORY CACHE_COPY_FROM CACHE_IMAGE_INDEX COPY_KEEP_DEST_OWNER COPY_LINK COPY_SUBDIR_MODE DEFER_CACHE_PUSH FORMAT_INDEPENDENT_CACHE_KEY FROM_PREDEFINED_ARGS GLOB_CHAR_PATHS ISOLATE_CACHE_PUSH LOCAL_UNPACK_REQUIRES_TAR NATIVE_INIT PARALLEL_GUNZIP PARALLEL_HASH PROBE_CREDENTIALS REPRODUCIBLE_SKIP_BASE_REWRITE RESUME_BLOB_DOWNLOADS RUN_CROSS_STAGE_BIND_MOUNT RUN_HEREDOC_SCRIPT RUN_MOUNT_BIND_RELATIVE RUN_MOUNT_BIND_RESOLVE_SYMLINK RUN_MOUNT_TMPFS SNAPSHOT_TRACK_CACHED_LAYERS WARMER_BUILD_ARGS WARMER_FAIL_ON_ERROR WARMER_PREDEFINED_ARGS"
 fi
 if [ "$INPUT_PROFILE_BUILDKIT" = true ]; then
   profile_flags="$profile_flags CHOWN_ON_IMPLICIT_DIRS COPY_AS_ROOT COPY_CHMOD_ON_IMPLICIT_DIRS COPY_LINK UNPACK_XZ"
@@ -146,14 +152,15 @@ EOF
 # shellcheck disable=SC2086 # extra-args holds several flags
 set -- "$@" $INPUT_EXTRA_ARGS
 
-# Builds one image and writes it, pinned by digest, to $results/<name>/ref.
+# Builds one image and writes it, pinned by digest in $repo, to
+# $results/<name>/ref.
 # Arguments: destination, platform or empty, name, then the shared flags.
 build() {
-  destination="$1"
+  push_to="$1"
   platform="$2"
   name="$3"
   shift 3
-  set -- "$@" --destination="$destination" --image-name-with-digest-file="$out/$name/image"
+  set -- "$@" --destination="$push_to" --image-name-with-digest-file="$out/$name/image"
   if [ -n "$platform" ]; then
     set -- "$@" --custom-platform="$platform"
   fi
@@ -197,50 +204,79 @@ build() {
   fi
 
   if [ "$INPUT_PUSH" = true ]; then
-    ref=$(head -n 1 "$results/$name/image")
+    digest=$(head -n 1 "$results/$name/image")
+    digest="${digest#*@}"
     if [ -s "$results/$name/index" ]; then
-      ref="${ref%@*}@sha256:$(sha256sum "$results/$name/index" | cut -d ' ' -f 1)"
+      digest="sha256:$(sha256sum "$results/$name/index" | cut -d ' ' -f 1)"
     fi
-    echo "$ref" > "$results/$name/ref"
+    echo "$repo@$digest" > "$results/$name/ref"
   fi
 }
 
+helper_config_flags=""
+if [ -f "$HOME/.docker/config.json" ]; then
+  helper_config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro"
+fi
+
 if [ -z "$INPUT_PLATFORMS" ]; then
-  build "$INPUT_DESTINATION" "" image "$@"
+  for extra in $extra_destinations; do
+    set -- "$@" "--destination=$extra"
+  done
+  build "$destination" "" image "$@"
   if [ "$INPUT_PUSH" = true ]; then
-    echo "image=$(cat "$results/image/ref")" >> "$GITHUB_OUTPUT"
+    image=$(cat "$results/image/ref")
   fi
+else
+  case "${destination##*/}" in
+    *:*) ;;
+    *) destination="$destination:latest" ;;
+  esac
+
+  platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
+  arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
+  docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
+
+  leaves=""
+  for platform in $platforms; do
+    suffix=$(echo "${platform#*/}" | tr '/' '-')
+    build "$destination-$suffix" "$platform" "$suffix" "$@"
+    if [ "$INPUT_PUSH" = true ]; then
+      leaves="$leaves $(cat "$results/$suffix/ref")"
+    fi
+  done
+
+  if [ "$INPUT_PUSH" = true ]; then
+    # shellcheck disable=SC2086 # the flag list is word-split on purpose
+    image=$(docker run --rm $helper_config_flags \
+      --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATIONS="$destination $extra_destinations" \
+      --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+      --volume "$GITHUB_ACTION_PATH/merge.sh:/merge.sh:ro" --entrypoint sh \
+      "$INPUT_MERGE_IMAGE" /merge.sh)
+  fi
+fi
+
+if [ "$INPUT_PUSH" != true ]; then
   exit 0
 fi
 
-case "${INPUT_DESTINATION##*/}" in
-  *:*) ;;
-  *) INPUT_DESTINATION="$INPUT_DESTINATION:latest" ;;
-esac
-
-platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
-arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
-docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
-
-leaves=""
-for platform in $platforms; do
-  suffix=$(echo "${platform#*/}" | tr '/' '-')
-  build "$INPUT_DESTINATION-$suffix" "$platform" "$suffix" "$@"
-  if [ "$INPUT_PUSH" = true ]; then
-    leaves="$leaves $(cat "$results/$suffix/ref")"
+if [ "$INPUT_COSIGN" != off ]; then
+  if [ "$INPUT_COSIGN" = keyless ]; then
+    SIGN_ID_TOKEN=$(wget -q -O - --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+    echo "::add-mask::$SIGN_ID_TOKEN"
+    export SIGN_ID_TOKEN
   fi
-done
-
-if [ "$INPUT_PUSH" = true ]; then
-  config_flags=""
-  if [ -f "$HOME/.docker/config.json" ]; then
-    config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro"
-  fi
-  # shellcheck disable=SC2086 # the flag list is word-split on purpose
-  merged=$(docker run --rm $config_flags \
-    --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATION="$INPUT_DESTINATION" \
-    --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
-    --volume "$GITHUB_ACTION_PATH/merge.sh:/merge.sh:ro" --entrypoint sh \
-    "$INPUT_MERGE_IMAGE" /merge.sh)
-  echo "image=$merged" >> "$GITHUB_OUTPUT"
+  key_flags=""
+  case "$INPUT_COSIGN_KEY" in
+    env://*) key_flags="--env ${INPUT_COSIGN_KEY#env://}" ;;
+  esac
+  # shellcheck disable=SC2086 # the flag lists are word-split on purpose
+  docker run --rm $helper_config_flags $key_flags \
+    --env SIGN_IMAGE="$image" --env SIGN_COSIGN="$INPUT_COSIGN" --env SIGN_KEY="$INPUT_COSIGN_KEY" \
+    --env SIGN_TLOG="$INPUT_TLOG" --env SIGN_SBOM="$INPUT_SBOM" --env SIGN_SERVER_URL="$GITHUB_SERVER_URL" --env SIGN_ID_TOKEN \
+    --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+    --env COSIGN_PASSWORD --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+    --volume "$GITHUB_ACTION_PATH/sign.sh:/sign.sh:ro" --entrypoint sh \
+    "$INPUT_SIGN_IMAGE" /sign.sh
 fi
+
+echo "image=$image" >> "$GITHUB_OUTPUT"

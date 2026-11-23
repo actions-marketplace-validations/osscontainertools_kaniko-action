@@ -1,0 +1,90 @@
+# Signing with cosign, and a signed SBOM of each platform. With a key and
+# without the transparency log the signatures stay private, which runs on pull
+# requests from forks too. Keyless
+# signing needs `id-token: write`, which pull requests from forks lack.
+name: test-sign
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write
+
+# kaniko runs on the default bridge and reaches the registry service through
+# its gateway, the runner reaches the same registry as localhost:5000.
+env:
+  REGISTRY: 172.17.0.1:5000
+  SIGN_IMAGE: registry.gitlab.com/osscontainertools/components/kaniko/sign:release-018d8426701f196bd5dac1f2d816ec7a90981044@sha256:f41302b91c8b93674140c4d707cf78b3beb285416d17fa92a274a2a5ed1c9dd9
+
+jobs:
+  key:
+    runs-on: ubuntu-26.04
+    services:
+      registry:
+        image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: key
+        env:
+          COSIGN_PASSWORD: test
+        run: |
+          mkdir "$RUNNER_TEMP/keys"
+          docker run --rm --user "$(id -u):$(id -g)" --env COSIGN_PASSWORD --volume "$RUNNER_TEMP/keys:/keys" --workdir /keys --entrypoint cosign "$SIGN_IMAGE" generate-key-pair
+          {
+            echo "key<<EOF"
+            cat "$RUNNER_TEMP/keys/cosign.key"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: ./
+        env:
+          COSIGN_PRIVATE_KEY: ${{ steps.key.outputs.key }}
+          COSIGN_PASSWORD: test
+        with:
+          context: tests/build
+          destination: ${{ env.REGISTRY }}/test-sign-key:${{ github.sha }}
+          target: base
+          cosign: key
+          tlog: false
+          sbom: true
+      - name: verify
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          ref="localhost:5000/${IMAGE#*/}"
+          cosign() {
+            docker run --rm --network host --volume "$RUNNER_TEMP/keys:/keys:ro" --entrypoint cosign "$SIGN_IMAGE" "$@"
+          }
+          cosign verify --key /keys/cosign.pub --insecure-ignore-tlog "$ref"
+          digest=$(docker run --rm --network host --entrypoint crane "$SIGN_IMAGE" manifest "$ref" | jq -r '.manifests[] | select(.platform.os != "unknown") | .digest')
+          cosign verify-attestation --type spdxjson --key /keys/cosign.pub --insecure-ignore-tlog "${ref%@*}@$digest" > /dev/null
+
+  keyless:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-26.04
+    services:
+      registry:
+        image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: build
+        uses: ./
+        with:
+          context: tests/build
+          destination: ${{ env.REGISTRY }}/test-sign-keyless:${{ github.sha }}
+          target: base
+          cosign: keyless
+      - name: verify
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+          IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
+        run: |
+          docker run --rm --network host --entrypoint cosign "$SIGN_IMAGE" \
+            verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer https://token.actions.githubusercontent.com "localhost:5000/${IMAGE#*/}"

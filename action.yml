@@ -13,7 +13,7 @@ inputs:
     description: Path to the Dockerfile, relative to the build context.
     default: Dockerfile
   destination:
-    description: Image reference to push to. Empty pushes to `ghcr.io/<owner>/<repo>:<ref slug>`, lowercase, where the slug is the branch or tag with every character but letters and digits replaced by `-`.
+    description: Image references to push to, separated by whitespace. The first is handed on as the `image` output, and its repository holds the layer cache. Empty pushes to `ghcr.io/<owner>/<repo>:<ref slug>`, lowercase, where the slug is the branch or tag with every character but letters and digits replaced by `-`.
     default: ""
   target:
     description: Dockerfile stage to build. Empty builds the last stage.
@@ -31,13 +31,13 @@ inputs:
     description: Layer cache in `<destination repository>/cache`, `off`, `on` or `split`. With `split` only the default branch writes it, other refs read it and write `<destination repository>/cache-unprotected`.
     default: "off"
   github-token-secret:
-    description: Offer `github-token` to `RUN --mount=type=secret,id=github_token`, for private dependencies on GitHub. It never ends up in the image.
+    description: Offer `github-token` to `RUN --mount=type=secret,id=github_token`, and as a `.netrc` for this GitHub instance to `id=netrc`, for private dependencies on GitHub. Only the `RUN` steps that mount it see it, and it never ends up in the image.
     default: "false"
   profile-preview:
-    description: Enable kaniko's [Preview profile](https://github.com/osscontainertools/kaniko/blob/v1.29.1/README.md#preview), the feature flags that become default in the next release. Feature flags set in the environment win.
+    description: Enable kaniko's [Preview profile](https://github.com/osscontainertools/kaniko/blob/v1.29.2/docs/feature-flags.md#preview), the feature flags that become default in the next release. Feature flags set in the environment win.
     default: "false"
   profile-buildkit:
-    description: Enable kaniko's [BuildKit compatibility profile](https://github.com/osscontainertools/kaniko/blob/v1.29.1/README.md#buildkit-compatibility), which follows the Dockerfile specification where kaniko historically does not. Feature flags set in the environment win.
+    description: Enable kaniko's [BuildKit compatibility profile](https://github.com/osscontainertools/kaniko/blob/v1.29.2/docs/feature-flags.md#buildkit-compatibility), which follows the Dockerfile specification where kaniko historically does not. Feature flags set in the environment win.
     default: "false"
   telemetry:
     description: "Where to send a trace of the build: `off`, `firn` or `custom`. `firn` and `custom` need `id-token: write`."
@@ -55,7 +55,7 @@ inputs:
     description: Annotate the image with its source, revision and version, read from the workflow run.
     default: "true"
   retries:
-    description: Number of retries of pulls, base image extraction and the push.
+    description: Number of retries of pulls and the push.
     default: "3"
   github-token:
     description: "Token kaniko uses for ghcr.io, and to clone the repository without a checkout. Pushing needs `packages: write`."
@@ -64,17 +64,32 @@ inputs:
     description: Additional executor flags.
     default: ""
   platforms:
-    description: Platforms to build, separated by commas, such as `linux/amd64,linux/arm64`. Platforms other than the runner's are emulated with QEMU, which needs a runner with Docker. Each is pushed as `<destination>-<arch>`, tagged `latest-<arch>` when `destination` has no tag, and merged into one index at `destination`. Empty builds for the runner's platform only.
+    description: Platforms to build, separated by commas, such as `linux/amd64,linux/arm64`. Platforms other than the runner's are emulated with QEMU, which needs a runner with Docker. Each is pushed as `<first destination>-<arch>`, tagged `latest-<arch>` when the first destination has no tag, and merged into one index at every destination. Empty builds for the runner's platform only.
     default: ""
   image:
     description: kaniko debug image to run the build in, when the job does not already run in a kaniko image.
-    default: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
+    default: ghcr.io/osscontainertools/kaniko:v1.29.2-debug@sha256:b3cadc638a5b0a7e8ae7b3b76704821b2b5f191163222da401283541c8fa2d41
   bootstrap:
     description: Build an image that has files in `/kaniko` or `/busybox`, such as kaniko itself. Runs in `bootstrap-image` with `KANIKO_DIR=/kaniko2`. On Kubernetes, run the job in the bootstrap image.
     default: "false"
   bootstrap-image:
     description: kaniko bootstrap image to run the build in, with `bootstrap` enabled.
-    default: ghcr.io/osscontainertools/kaniko:v1.29.1-bootstrap@sha256:2f0ce41081fadf9d4c06dda066ad13047ff6f3b5875edbfff616de50a42ad17e
+    default: ghcr.io/osscontainertools/kaniko:v1.29.2-bootstrap@sha256:f58026e2f55b7bdc8dd8c702cc92f548b3e5d8c10f7eda4070aed86a0c2cd1e4
+  cosign:
+    description: "Sign the pushed image with cosign: `off`, `keyless` or `key`. `keyless` signs with the job's ID token through Sigstore's public Fulcio and needs `id-token: write`. `key` signs with `cosign-key`. Needs a runner with Docker."
+    default: "off"
+  cosign-key:
+    description: Key to sign with, with `cosign` set to `key`, as `env://<variable>`. cosign reads its password from `COSIGN_PASSWORD`. Set both in the step's `env`.
+    default: env://COSIGN_PRIVATE_KEY
+  tlog:
+    description: Record the signature in Sigstore's public Rekor transparency log. Keyless signing needs it. Turn it off to keep a key's signatures private.
+    default: "true"
+  sbom:
+    description: Attach a signed SPDX SBOM to each platform, scanned with syft. Needs `cosign`.
+    default: "false"
+  sign-image:
+    description: Image with cosign, crane, jq and syft that signs the image and scans it.
+    default: registry.gitlab.com/osscontainertools/components/kaniko/sign:release-018d8426701f196bd5dac1f2d816ec7a90981044@sha256:f41302b91c8b93674140c4d707cf78b3beb285416d17fa92a274a2a5ed1c9dd9
   merge-image:
     description: Image with crane and jq that merges the platforms into one index.
     default: registry.gitlab.com/osscontainertools/components/kaniko/merge:release-11b74ff77aae51e40166744b2c6e062c81633b84@sha256:322a2281f783d403be2b63ce88281f6ee54e9e08644d8f94628b5e23cdf6c4c8
@@ -116,6 +131,11 @@ runs:
         INPUT_PLATFORMS: ${{ inputs.platforms }}
         INPUT_BOOTSTRAP: ${{ inputs.bootstrap }}
         INPUT_BOOTSTRAP_IMAGE: ${{ inputs.bootstrap-image }}
+        INPUT_COSIGN: ${{ inputs.cosign }}
+        INPUT_COSIGN_KEY: ${{ inputs.cosign-key }}
+        INPUT_TLOG: ${{ inputs.tlog }}
+        INPUT_SBOM: ${{ inputs.sbom }}
+        INPUT_SIGN_IMAGE: ${{ inputs.sign-image }}
         INPUT_MERGE_IMAGE: ${{ inputs.merge-image }}
         INPUT_BINFMT_IMAGE: ${{ inputs.binfmt-image }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
