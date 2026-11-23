@@ -1,7 +1,7 @@
 # Multi-arch in one step on one runner: the action builds the runner's own
 # platform natively, emulates the others with QEMU, and merges them into one
-# index. Simple, but RUN steps under emulation are slow. For native speed, see
-# test-multiarch.yml.
+# index, pushed to two destinations. Simple, but RUN steps under emulation are
+# slow. For native speed, see test-multiarch.yml.
 name: test-multiarch-emulated
 
 on:
@@ -31,7 +31,9 @@ jobs:
         uses: ./
         with:
           context: tests/multiarch
-          destination: ${{ env.REGISTRY }}/test-multiarch-emulated:${{ github.sha }}
+          destination: |
+            ${{ env.REGISTRY }}/test-multiarch-emulated:${{ github.sha }}
+            ${{ env.REGISTRY }}/test-multiarch-emulated-copy:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
       - name: verify
         env:
@@ -43,3 +45,4 @@ jobs:
           for arch in amd64 arm64; do
             test "$(docker run --rm --platform "linux/$arch" "$ref" cat /arch)" = "$arch"
           done
+          test "$(docker run --rm --network host "$MERGE_IMAGE" crane digest "localhost:5000/test-multiarch-emulated-copy:$GITHUB_SHA")" = "${IMAGE#*@}"

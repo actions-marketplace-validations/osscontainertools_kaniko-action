@@ -1,8 +1,8 @@
 #!/bin/sh
-# Merges the per-platform images in MERGE_IMAGES, one reference per line, into
-# one index at MERGE_DESTINATION and prints it pinned by digest. Needs crane
-# and jq, as in the merge image.
-set -eu
+# Merges the per-platform images in MERGE_IMAGES, separated by whitespace, into
+# one index, pushes it to every reference in MERGE_DESTINATIONS and prints it
+# pinned by digest in the first. Needs crane and jq, as in the merge image.
+set -euf
 
 if [ -f /docker-config/config.json ]; then
   mkdir -p "$HOME/.docker"
@@ -38,10 +38,17 @@ fi
 jq -s --slurpfile first "$work/first.json" \
   '{schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: .} + ($first[0] | if .annotations then {annotations} else {} end)' \
   "$work/descriptors" > "$work/index.json"
-crane edit manifest "$first" --tag "$MERGE_DESTINATION" < "$work/index.json" > /dev/null
+# shellcheck disable=SC2086 # one reference per word
+set -- $MERGE_DESTINATIONS
+destination=$1
+shift
+crane edit manifest "$first" --tag "$destination" < "$work/index.json" > /dev/null
+for ref in "$@"; do
+  crane copy "$destination" "$ref" > /dev/null
+done
 
-repo="${MERGE_DESTINATION%@*}"
+repo="${destination%@*}"
 case "${repo##*/}" in
   *:*) repo="${repo%:*}" ;;
 esac
-echo "$repo@$(crane digest "$MERGE_DESTINATION")"
+echo "$repo@$(crane digest "$destination")"

@@ -13,7 +13,7 @@ inputs:
     description: Path to the Dockerfile, relative to the build context.
     default: Dockerfile
   destination:
-    description: Image reference to push to. Empty pushes to `ghcr.io/<owner>/<repo>:<ref slug>`, lowercase, where the slug is the branch or tag with every character but letters and digits replaced by `-`.
+    description: Image references to push to, separated by whitespace. The first is handed on as the `image` output, and its repository holds the layer cache. Empty pushes to `ghcr.io/<owner>/<repo>:<ref slug>`, lowercase, where the slug is the branch or tag with every character but letters and digits replaced by `-`.
     default: ""
   target:
     description: Dockerfile stage to build. Empty builds the last stage.
@@ -64,7 +64,7 @@ inputs:
     description: Additional executor flags.
     default: ""
   platforms:
-    description: Platforms to build, separated by commas, such as `linux/amd64,linux/arm64`. Platforms other than the runner's are emulated with QEMU, which needs a runner with Docker. Each is pushed as `<destination>-<arch>`, tagged `latest-<arch>` when `destination` has no tag, and merged into one index at `destination`. Empty builds for the runner's platform only.
+    description: Platforms to build, separated by commas, such as `linux/amd64,linux/arm64`. Platforms other than the runner's are emulated with QEMU, which needs a runner with Docker. Each is pushed as `<first destination>-<arch>`, tagged `latest-<arch>` when the first destination has no tag, and merged into one index at every destination. Empty builds for the runner's platform only.
     default: ""
   image:
     description: kaniko debug image to run the build in, when the job does not already run in a kaniko image.

@@ -57,8 +57,6 @@ mkdir -p "$glob_dir/linux/amd64"
 rm -rf "$glob_dir"
 expect_failure "duplicate platform suffix" "duplicate image suffix" \
   INPUT_PLATFORMS=linux/arm/v6,linux/arm-v6
-expect_failure "several destinations" "must be one image reference" \
-  "INPUT_DESTINATION=ghcr.io/example/image:a ghcr.io/example/image:b"
 expect_failure "missing custom telemetry endpoint" "telemetry-endpoint is required" \
   INPUT_TELEMETRY=custom ACTIONS_ID_TOKEN_REQUEST_URL=https://example.test/token \
   ACTIONS_ID_TOKEN_REQUEST_TOKEN=token

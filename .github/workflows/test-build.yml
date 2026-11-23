@@ -1,6 +1,6 @@
 # A typical build: one stage of a multi-stage Dockerfile and a build arg with a
-# space in its value. Later steps receive the pushed index as the `image`
-# output, pinned by digest.
+# space in its value, pushed to two destinations. Later steps receive the
+# pushed index in the first as the `image` output, pinned by digest.
 name: test-build
 
 on:
@@ -30,7 +30,9 @@ jobs:
         uses: ./
         with:
           context: tests/build
-          destination: ${{ env.REGISTRY }}/test-build:${{ github.sha }}
+          destination: |
+            ${{ env.REGISTRY }}/test-build:${{ github.sha }}
+            ${{ env.REGISTRY }}/test-build-copy:${{ github.sha }}
           target: base
           build-args: |
             GREETING=hello ${{ github.run_id }}
@@ -43,3 +45,4 @@ jobs:
           ref="localhost:5000/${IMAGE#*/}"
           test "$(docker run --rm --network host "$MERGE_IMAGE" crane manifest "$ref" | jq -r .mediaType)" = application/vnd.oci.image.index.v1+json
           test "$(docker run --rm "$ref" cat /greeting)" = "hello $GITHUB_RUN_ID"
+          test "$(docker run --rm --network host "$MERGE_IMAGE" crane digest "localhost:5000/test-build-copy:$GITHUB_SHA")" = "${IMAGE#*@}"

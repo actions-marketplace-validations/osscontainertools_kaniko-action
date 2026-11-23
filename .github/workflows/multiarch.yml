@@ -20,7 +20,7 @@ on:
         type: string
         default: Dockerfile
       destination:
-        description: Image reference to push the index to. Each platform is also pushed as `<destination>-<arch>`, tagged `latest-<arch>` when `destination` has no tag. Empty pushes to `ghcr.io/<owner>/<repo>:<ref slug>`, as the action does.
+        description: Image references to push the index to, separated by whitespace. Each platform is also pushed as `<first destination>-<arch>`, tagged `latest-<arch>` when the first destination has no tag. Empty pushes to `ghcr.io/<owner>/<repo>:<ref slug>`, as the action does.
         type: string
         default: ""
       target:
@@ -112,9 +112,13 @@ jobs:
           DESTINATION: ${{ inputs.destination }}
           PLATFORM: ${{ matrix.platform }}
         run: |
+          set -f
           if [ -z "$DESTINATION" ]; then
             DESTINATION=$(.kaniko-action/destination.sh)
           fi
+          # shellcheck disable=SC2086 # one reference per word
+          set -- $DESTINATION
+          DESTINATION=$1
           case "${DESTINATION##*/}" in
             *:*) ;;
             *) DESTINATION="$DESTINATION:latest" ;;
@@ -159,19 +163,24 @@ jobs:
           KANIKO_GHCR_IO_USER: ${{ github.actor }}
           KANIKO_GHCR_IO_PASSWORD: ${{ github.token }}
         run: |
+          set -f
           if [ -z "$DESTINATION" ]; then
             DESTINATION=$(.kaniko-action/destination.sh)
           fi
-          case "${DESTINATION##*/}" in
+          # shellcheck disable=SC2086 # one reference per word
+          set -- $DESTINATION
+          first=$1
+          shift
+          case "${first##*/}" in
             *:*) ;;
-            *) DESTINATION="$DESTINATION:latest" ;;
+            *) first="$first:latest" ;;
           esac
           leaves=""
           for platform in $(echo "$PLATFORMS" | jq -r '.[]'); do
-            leaves="$leaves $DESTINATION-$(echo "${platform#*/}" | tr / -)"
+            leaves="$leaves $first-$(echo "${platform#*/}" | tr / -)"
           done
           image=$(docker run --rm \
-            --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATION="$DESTINATION" \
+            --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATIONS="$first $*" \
             --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
             --volume "$GITHUB_WORKSPACE/.kaniko-action/merge.sh:/merge.sh:ro" --entrypoint sh \
             "$MERGE_IMAGE" /merge.sh)
