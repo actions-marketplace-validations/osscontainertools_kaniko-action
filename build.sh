@@ -213,45 +213,70 @@ build() {
   fi
 }
 
+helper_config_flags=""
+if [ -f "$HOME/.docker/config.json" ]; then
+  helper_config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro"
+fi
+
 if [ -z "$INPUT_PLATFORMS" ]; then
   for extra in $extra_destinations; do
     set -- "$@" "--destination=$extra"
   done
   build "$destination" "" image "$@"
   if [ "$INPUT_PUSH" = true ]; then
-    echo "image=$(cat "$results/image/ref")" >> "$GITHUB_OUTPUT"
+    image=$(cat "$results/image/ref")
   fi
+else
+  case "${destination##*/}" in
+    *:*) ;;
+    *) destination="$destination:latest" ;;
+  esac
+
+  platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
+  arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
+  docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
+
+  leaves=""
+  for platform in $platforms; do
+    suffix=$(echo "${platform#*/}" | tr '/' '-')
+    build "$destination-$suffix" "$platform" "$suffix" "$@"
+    if [ "$INPUT_PUSH" = true ]; then
+      leaves="$leaves $(cat "$results/$suffix/ref")"
+    fi
+  done
+
+  if [ "$INPUT_PUSH" = true ]; then
+    # shellcheck disable=SC2086 # the flag list is word-split on purpose
+    image=$(docker run --rm $helper_config_flags \
+      --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATIONS="$destination $extra_destinations" \
+      --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+      --volume "$GITHUB_ACTION_PATH/merge.sh:/merge.sh:ro" --entrypoint sh \
+      "$INPUT_MERGE_IMAGE" /merge.sh)
+  fi
+fi
+
+if [ "$INPUT_PUSH" != true ]; then
   exit 0
 fi
 
-case "${destination##*/}" in
-  *:*) ;;
-  *) destination="$destination:latest" ;;
-esac
-
-platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
-arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
-docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
-
-leaves=""
-for platform in $platforms; do
-  suffix=$(echo "${platform#*/}" | tr '/' '-')
-  build "$destination-$suffix" "$platform" "$suffix" "$@"
-  if [ "$INPUT_PUSH" = true ]; then
-    leaves="$leaves $(cat "$results/$suffix/ref")"
+if [ "$INPUT_COSIGN" != off ]; then
+  if [ "$INPUT_COSIGN" = keyless ]; then
+    SIGN_ID_TOKEN=$(wget -q -O - --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+    echo "::add-mask::$SIGN_ID_TOKEN"
+    export SIGN_ID_TOKEN
   fi
-done
-
-if [ "$INPUT_PUSH" = true ]; then
-  config_flags=""
-  if [ -f "$HOME/.docker/config.json" ]; then
-    config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro"
-  fi
-  # shellcheck disable=SC2086 # the flag list is word-split on purpose
-  merged=$(docker run --rm $config_flags \
-    --env MERGE_IMAGES="$leaves" --env MERGE_DESTINATIONS="$destination $extra_destinations" \
-    --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
-    --volume "$GITHUB_ACTION_PATH/merge.sh:/merge.sh:ro" --entrypoint sh \
-    "$INPUT_MERGE_IMAGE" /merge.sh)
-  echo "image=$merged" >> "$GITHUB_OUTPUT"
+  key_flags=""
+  case "$INPUT_COSIGN_KEY" in
+    env://*) key_flags="--env ${INPUT_COSIGN_KEY#env://}" ;;
+  esac
+  # shellcheck disable=SC2086 # the flag lists are word-split on purpose
+  docker run --rm $helper_config_flags $key_flags \
+    --env SIGN_IMAGE="$image" --env SIGN_COSIGN="$INPUT_COSIGN" --env SIGN_KEY="$INPUT_COSIGN_KEY" \
+    --env SIGN_TLOG="$INPUT_TLOG" --env SIGN_SERVER_URL="$GITHUB_SERVER_URL" --env SIGN_ID_TOKEN \
+    --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+    --env COSIGN_PASSWORD --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+    --volume "$GITHUB_ACTION_PATH/sign.sh:/sign.sh:ro" --entrypoint sh \
+    "$INPUT_SIGN_IMAGE" /sign.sh
 fi
+
+echo "image=$image" >> "$GITHUB_OUTPUT"

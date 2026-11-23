@@ -20,6 +20,9 @@ INPUT_TELEMETRY_TOKEN_EXCHANGE_ENDPOINT=
 INPUT_PLATFORMS=
 INPUT_DIRECT=true
 INPUT_DESTINATION=ghcr.io/example/image:latest
+INPUT_COSIGN=off
+INPUT_TLOG=true
+export INPUT_COSIGN INPUT_TLOG
 export INPUT_PUSH INPUT_REPRODUCIBLE INPUT_GITHUB_TOKEN_SECRET
 export INPUT_PROFILE_PREVIEW INPUT_PROFILE_BUILDKIT INPUT_PROVENANCE
 export INPUT_PREDEFINED_ANNOTATIONS INPUT_BOOTSTRAP INPUT_CACHE INPUT_TELEMETRY
@@ -62,6 +65,13 @@ expect_failure "missing custom telemetry endpoint" "telemetry-endpoint is requir
   ACTIONS_ID_TOKEN_REQUEST_TOKEN=token
 expect_failure "direct multiarch" "needs a runner with Docker" \
   INPUT_PLATFORMS=linux/amd64 INPUT_DIRECT=true
+expect_failure "bad cosign" "cosign must be off, keyless or key" INPUT_COSIGN=on
+expect_failure "keyless without tlog" "keyless signing needs tlog" \
+  INPUT_COSIGN=keyless INPUT_TLOG=false
+expect_failure "keyless without id-token" "needs the job permission id-token: write" \
+  INPUT_COSIGN=keyless
+expect_failure "direct cosign" "cosign needs a runner with Docker" \
+  INPUT_COSIGN=key INPUT_DIRECT=true
 expect_failure "missing local Dockerfile" "Dockerfile does not exist" \
   INPUT_LOCAL_CONTEXT="$action/tests/build" \
   INPUT_LOCAL_DOCKERFILE="$action/tests/build/missing.Dockerfile"
