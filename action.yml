@@ -34,10 +34,10 @@ inputs:
     description: Offer `github-token` to `RUN --mount=type=secret,id=github_token`, for private dependencies on GitHub. It never ends up in the image.
     default: "false"
   profile-preview:
-    description: Enable kaniko's [Preview profile](https://github.com/osscontainertools/kaniko/blob/v1.29.1/README.md#preview), the feature flags that become default in the next release. Feature flags set in the environment win.
+    description: Enable kaniko's [Preview profile](https://github.com/osscontainertools/kaniko/blob/v1.29.2/docs/feature-flags.md#preview), the feature flags that become default in the next release. Feature flags set in the environment win.
     default: "false"
   profile-buildkit:
-    description: Enable kaniko's [BuildKit compatibility profile](https://github.com/osscontainertools/kaniko/blob/v1.29.1/README.md#buildkit-compatibility), which follows the Dockerfile specification where kaniko historically does not. Feature flags set in the environment win.
+    description: Enable kaniko's [BuildKit compatibility profile](https://github.com/osscontainertools/kaniko/blob/v1.29.2/docs/feature-flags.md#buildkit-compatibility), which follows the Dockerfile specification where kaniko historically does not. Feature flags set in the environment win.
     default: "false"
   telemetry:
     description: "Where to send a trace of the build: `off`, `firn` or `custom`. `firn` and `custom` need `id-token: write`."
@@ -55,7 +55,7 @@ inputs:
     description: Annotate the image with its source, revision and version, read from the workflow run.
     default: "true"
   retries:
-    description: Number of retries of pulls, base image extraction and the push.
+    description: Number of retries of pulls and the push.
     default: "3"
   github-token:
     description: "Token kaniko uses for ghcr.io, and to clone the repository without a checkout. Pushing needs `packages: write`."
@@ -68,13 +68,13 @@ inputs:
     default: ""
   image:
     description: kaniko debug image to run the build in, when the job does not already run in a kaniko image.
-    default: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
+    default: ghcr.io/osscontainertools/kaniko:v1.29.2-debug@sha256:b3cadc638a5b0a7e8ae7b3b76704821b2b5f191163222da401283541c8fa2d41
   bootstrap:
     description: Build an image that has files in `/kaniko` or `/busybox`, such as kaniko itself. Runs in `bootstrap-image` with `KANIKO_DIR=/kaniko2`. On Kubernetes, run the job in the bootstrap image.
     default: "false"
   bootstrap-image:
     description: kaniko bootstrap image to run the build in, with `bootstrap` enabled.
-    default: ghcr.io/osscontainertools/kaniko:v1.29.1-bootstrap@sha256:2f0ce41081fadf9d4c06dda066ad13047ff6f3b5875edbfff616de50a42ad17e
+    default: ghcr.io/osscontainertools/kaniko:v1.29.2-bootstrap@sha256:f58026e2f55b7bdc8dd8c702cc92f548b3e5d8c10f7eda4070aed86a0c2cd1e4
   merge-image:
     description: Image with crane and jq that merges the platforms into one index.
     default: registry.gitlab.com/osscontainertools/components/kaniko/merge:release-11b74ff77aae51e40166744b2c6e062c81633b84@sha256:322a2281f783d403be2b63ce88281f6ee54e9e08644d8f94628b5e23cdf6c4c8
