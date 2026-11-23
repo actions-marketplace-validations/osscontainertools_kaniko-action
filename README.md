@@ -96,7 +96,11 @@ To sign with a key, put it and its password in secrets, and turn the transparenc
           tlog: false
 ```
 
-Verify with `cosign verify --key cosign.pub --insecure-ignore-tlog <image>`. An image that already has a signature from the same signer keeps it, so a rebuild to the same digest attaches no second one.
+Verify with `cosign verify --key cosign.pub --insecure-ignore-tlog <image>`.
+
+`sbom: true` also attaches a signed SPDX SBOM to each platform, scanned with syft. Read it with `cosign verify-attestation --type spdxjson`, the same flags and the platform's digest.
+
+An image that already has a signature or SBOM from the same signer keeps it, so a rebuild to the same digest attaches no second one.
 
 ## Defaults
 

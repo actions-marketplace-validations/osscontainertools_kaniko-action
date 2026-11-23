@@ -1,9 +1,9 @@
 #!/bin/sh
-# Signs SIGN_IMAGE with cosign, unless it carries a signature of the same
-# signer already. Keyless, the same signer is the same workflow and ref, read
-# from SIGN_ID_TOKEN, and cosign requests its own ID token through
-# ACTIONS_ID_TOKEN_REQUEST_URL. Needs cosign, crane and jq, as in the sign
-# image.
+# Signs SIGN_IMAGE with cosign and, with SIGN_SBOM, attaches a signed SPDX SBOM
+# to each of its platforms, unless they carry one of the same signer already.
+# Keyless, the same signer is the same workflow and ref, and cosign requests an
+# ID token for each signature, as a scan can outlast one. Needs cosign, crane,
+# jq and syft, as in the sign image.
 set -euf
 
 if [ -f /docker-config/config.json ]; then
@@ -35,3 +35,19 @@ if cosign verify $verify_flags "$SIGN_IMAGE" > /dev/null 2>&1; then
 else
   cosign sign "$@" "$SIGN_IMAGE"
 fi
+
+if [ "$SIGN_SBOM" != true ]; then
+  exit 0
+fi
+platforms=$(crane manifest "$SIGN_IMAGE" | jq -r --arg d "${SIGN_IMAGE#*@}" \
+  '[.manifests[]? | select(.platform.os != "unknown") | .digest] | if length == 0 then [$d] else . end | .[]')
+for digest in $platforms; do
+  ref="${SIGN_IMAGE%@*}@$digest"
+  # shellcheck disable=SC2086 # the flag list is word-split on purpose
+  if cosign verify-attestation --type spdxjson $verify_flags "$ref" > /dev/null 2>&1; then
+    echo "$ref has an SBOM already"
+    continue
+  fi
+  syft scan -q "registry:$ref" -o spdx-json=/tmp/sbom.json
+  cosign attest "$@" --type spdxjson --predicate /tmp/sbom.json "$ref"
+done

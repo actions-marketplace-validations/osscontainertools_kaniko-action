@@ -22,11 +22,16 @@ validate_boolean provenance "$INPUT_PROVENANCE"
 validate_boolean predefined-annotations "$INPUT_PREDEFINED_ANNOTATIONS"
 validate_boolean bootstrap "$INPUT_BOOTSTRAP"
 validate_boolean tlog "$INPUT_TLOG"
+validate_boolean sbom "$INPUT_SBOM"
 
 case "$INPUT_COSIGN" in
   off | keyless | key) ;;
   *) fail "cosign must be off, keyless or key, got '$INPUT_COSIGN'" ;;
 esac
+
+if [ "$INPUT_SBOM" = true ] && [ "$INPUT_COSIGN" = off ]; then
+  fail "sbom needs cosign"
+fi
 
 if [ "$INPUT_COSIGN" = keyless ]; then
   [ "$INPUT_TLOG" = true ] || fail "keyless signing needs tlog"
