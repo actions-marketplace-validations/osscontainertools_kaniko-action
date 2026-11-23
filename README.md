@@ -100,6 +100,8 @@ Verify with `cosign verify --key cosign.pub --insecure-ignore-tlog <image>`.
 
 `sbom: true` also attaches a signed SPDX SBOM to each platform, scanned with syft. Read it with `cosign verify-attestation --type spdxjson`, the same flags and the platform's digest.
 
+The reusable workflow `multiarch.yml` signs the index in its merge job with the same `cosign`, `tlog` and `sbom` inputs, and takes a key as the secrets `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD`. Keyless, the signature names `multiarch.yml` at the caller's ref.
+
 An image that already has a signature or SBOM from the same signer keeps it, so a rebuild to the same digest attaches no second one.
 
 ## Defaults
