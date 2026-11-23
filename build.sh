@@ -82,12 +82,16 @@ fi
 set -- "$@" \
   --context="$context" \
   --dockerfile="$dockerfile" \
-  --target="$INPUT_TARGET" \
   --push-retry="$INPUT_RETRIES" \
   --image-download-retry="$INPUT_RETRIES" \
   --predefined-annotations="$INPUT_PREDEFINED_ANNOTATIONS" \
   --reproducible="$INPUT_REPRODUCIBLE" \
   --credential-helpers=env
+
+# bake takes the stage from the bakefile.
+if [ -z "$INPUT_BAKEFILE" ]; then
+  set -- "$@" --target="$INPUT_TARGET"
+fi
 
 case "$INPUT_CACHE" in
   off) ;;
@@ -152,6 +156,44 @@ EOF
 # shellcheck disable=SC2086 # extra-args holds several flags
 set -- "$@" $INPUT_EXTRA_ARGS
 
+env_names="GITHUB_ACTIONS GITHUB_REPOSITORY GITHUB_SHA GITHUB_REF GITHUB_REF_NAME GITHUB_HEAD_REF GITHUB_SERVER_URL GITHUB_WORKFLOW GITHUB_JOB GITHUB_RUN_ID GITHUB_RUN_ATTEMPT KANIKO_GHCR_IO_USER KANIKO_GHCR_IO_PASSWORD GIT_USERNAME GIT_PASSWORD"
+env_names="$env_names $(env | sed -n 's/^\(\(FF_\)\{0,1\}KANIKO_[A-Z0-9_]*\)=.*/\1/p' | tr '\n' ' ')"
+env_flags=""
+for env_name in $env_names; do
+  env_flags="$env_flags --env $env_name"
+done
+config_flags=""
+# Outside /kaniko, which kaniko moves away in bootstrap mode.
+if [ -f "$HOME/.docker/config.json" ]; then
+  config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro --env DOCKER_CONFIG=/docker-config"
+fi
+
+# Runs the executor with the remaining arguments, in this job or in its own
+# container. With `true` as the first argument, it then copies what the
+# executor wrote to $out into $results.
+run() {
+  copy="$1"
+  shift
+  if [ "$direct" = true ]; then
+    /kaniko/executor "$@"
+    return
+  fi
+  # shellcheck disable=SC2086 # the flag lists are word-split on purpose
+  cid=$(docker create $env_flags $config_flags --volume "$GITHUB_WORKSPACE:/workspace:ro" "$image" "$@")
+  status=0
+  docker start --attach "$cid" || status=$?
+  if [ "$status" = 0 ]; then
+    status=$(docker inspect --format '{{.State.ExitCode}}' "$cid")
+  fi
+  if [ "$status" = 0 ] && [ "$copy" = true ]; then
+    docker cp "$cid:$out/." "$results"
+  fi
+  docker rm --force "$cid" > /dev/null
+  if [ "$status" != 0 ]; then
+    exit "$status"
+  fi
+}
+
 # Builds one image and writes it, pinned by digest in $repo, to
 # $results/<name>/ref.
 # Arguments: destination, platform or empty, name, then the shared flags.
@@ -174,34 +216,8 @@ build() {
 
   if [ "$direct" = true ]; then
     mkdir -p "$out/$name"
-    /kaniko/executor "$@"
-  else
-    env_names="GITHUB_ACTIONS GITHUB_REPOSITORY GITHUB_SHA GITHUB_REF GITHUB_REF_NAME GITHUB_HEAD_REF GITHUB_SERVER_URL GITHUB_WORKFLOW GITHUB_JOB GITHUB_RUN_ID GITHUB_RUN_ATTEMPT KANIKO_GHCR_IO_USER KANIKO_GHCR_IO_PASSWORD GIT_USERNAME GIT_PASSWORD"
-    env_names="$env_names $(env | sed -n 's/^\(\(FF_\)\{0,1\}KANIKO_[A-Z0-9_]*\)=.*/\1/p' | tr '\n' ' ')"
-    env_flags=""
-    for env_name in $env_names; do
-      env_flags="$env_flags --env $env_name"
-    done
-    config_flags=""
-    # Outside /kaniko, which kaniko moves away in bootstrap mode.
-    if [ -f "$HOME/.docker/config.json" ]; then
-      config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro --env DOCKER_CONFIG=/docker-config"
-    fi
-    # shellcheck disable=SC2086 # the flag lists are word-split on purpose
-    cid=$(docker create $env_flags $config_flags --volume "$GITHUB_WORKSPACE:/workspace:ro" "$image" "$@")
-    status=0
-    docker start --attach "$cid" || status=$?
-    if [ "$status" = 0 ]; then
-      status=$(docker inspect --format '{{.State.ExitCode}}' "$cid")
-    fi
-    if [ "$status" = 0 ]; then
-      docker cp "$cid:$out/." "$results"
-    fi
-    docker rm --force "$cid" > /dev/null
-    if [ "$status" != 0 ]; then
-      exit "$status"
-    fi
   fi
+  run true "$@"
 
   if [ "$INPUT_PUSH" = true ]; then
     digest=$(head -n 1 "$results/$name/image")
@@ -218,7 +234,126 @@ if [ -f "$HOME/.docker/config.json" ]; then
   helper_config_flags="--volume $HOME/.docker/config.json:/docker-config/config.json:ro"
 fi
 
-if [ -z "$INPUT_PLATFORMS" ]; then
+# Prints the image of each target in the bake targets JSON $1 as bake.sh does.
+bake_images() {
+  if [ "$direct" = true ]; then
+    BAKE_TARGETS="$1" sh "$GITHUB_ACTION_PATH/bake.sh"
+    return
+  fi
+  # shellcheck disable=SC2086 # the flag list is word-split on purpose
+  docker run --rm $helper_config_flags \
+    --env BAKE_TARGETS="$1" --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+    --volume "$GITHUB_ACTION_PATH/bake.sh:/bake.sh:ro" --entrypoint sh \
+    "$INPUT_MERGE_IMAGE" /bake.sh
+}
+
+# jq: the image reference tagged `latest` when it has no tag.
+tagged='def tagged: if split("/")[-1] | contains(":") then . else . + ":latest" end;'
+
+# Bakes every target with a destination for one platform, pushed to
+# `<first destination>-<suffix>`, and with a push prints the images as
+# bake.sh does. The merge job of bake-multiarch.yml derives the same
+# destinations.
+# Arguments: suffix, platform or empty, then the bake arguments without
+# destination overrides.
+bake_platform() {
+  suffix="$1"
+  platform="$2"
+  shift 2
+  platform_targets=$(printf '%s' "$BAKE_TARGETS" | jq -c --arg suffix "$suffix" "$tagged"'
+    .target |= with_entries(select(.value.destination | length > 0) | .value.destination |= [(.[0] | tagged) + "-" + $suffix])')
+  for override in $(printf '%s' "$platform_targets" | jq -r '.target | to_entries[] | "--set=\(.key).destination=\(.value.destination[0])"'); do
+    set -- "$@" "$override"
+  done
+  if [ -n "$platform" ]; then
+    set -- "$@" --custom-platform="$platform"
+  fi
+  run false "$@" >&2
+  if [ "$INPUT_PUSH" = true ]; then
+    bake_images "$platform_targets"
+  fi
+}
+
+if [ -n "$INPUT_PLATFORMS" ]; then
+  platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
+  arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
+  docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
+fi
+
+if [ -n "$INPUT_BAKEFILE" ]; then
+  while IFS= read -r line; do
+    if [ -n "$line" ]; then
+      set -- "$@" "--set=$line"
+    fi
+  done <<EOF
+$INPUT_SET
+EOF
+  # shellcheck disable=SC2086 # targets holds several names
+  set -- bake "$root/$INPUT_BAKEFILE" $INPUT_TARGETS "$@"
+  BAKE_TARGETS=$(run false "$@" --print)
+  export BAKE_TARGETS
+  if [ "$INPUT_PUSH" = true ]; then
+    if [ "$INPUT_PROVENANCE" = true ]; then
+      set -- "$@" --provenance
+    fi
+  else
+    set -- "$@" --no-push
+    # kaniko refuses --no-push-cache next to a target's cache_to, and --set
+    # adds to cache_to without clearing it.
+    case "$BAKE_TARGETS" in
+      *'"cache_to"'*) ;;
+      *) set -- "$@" --no-push-cache ;;
+    esac
+  fi
+  if [ -z "$INPUT_PLATFORMS" ] && [ -z "$INPUT_ARCH" ]; then
+    run false "$@"
+    if [ "$INPUT_PUSH" = true ]; then
+      images=$(bake_images "$BAKE_TARGETS")
+    fi
+  else
+    # Each platform replaces the destinations, the merge pushes to them.
+    for arg do
+      shift
+      case "$arg" in
+        --set=*.destination=*) ;;
+        *) set -- "$@" "$arg" ;;
+      esac
+    done
+  fi
+  if [ -n "$INPUT_ARCH" ]; then
+    # One platform of bake-multiarch.yml, whose merge job reads the targets.
+    {
+      echo "targets<<KANIKO_TARGETS"
+      printf '%s\n' "$BAKE_TARGETS"
+      echo KANIKO_TARGETS
+    } >> "$GITHUB_OUTPUT"
+    images=$(bake_platform "$INPUT_ARCH" "" "$@")
+  elif [ -n "$INPUT_PLATFORMS" ]; then
+    leaves='{}'
+    for platform in $platforms; do
+      platform_images=$(bake_platform "$(echo "${platform#*/}" | tr '/' '-')" "$platform" "$@")
+      if [ "$INPUT_PUSH" = true ]; then
+        leaves=$(jq -cn --argjson leaves "$leaves" --argjson images "$platform_images" \
+          'reduce ($images | to_entries[]) as $e ($leaves; .[$e.key] += [$e.value])')
+      fi
+    done
+    merges=$(printf '%s' "$BAKE_TARGETS" | jq -r --argjson leaves "$leaves" "$tagged"'
+      .target as $targets | $leaves | to_entries[] | "\(.key) \(.value | join(",")) \($targets[.key].destination | .[0] |= tagged | join(" "))"')
+    images='{}'
+    while read -r target refs destinations; do
+      [ -n "$target" ] || continue
+      # shellcheck disable=SC2086 # the flag list is word-split on purpose
+      merged=$(docker run --rm $helper_config_flags \
+        --env MERGE_IMAGES="$(echo "$refs" | tr ',' ' ')" --env MERGE_DESTINATIONS="$destinations" \
+        --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
+        --volume "$GITHUB_ACTION_PATH/merge.sh:/merge.sh:ro" --entrypoint sh \
+        "$INPUT_MERGE_IMAGE" /merge.sh)
+      images=$(jq -cn --argjson images "$images" --arg target "$target" --arg image "$merged" '$images + {($target): $image}')
+    done <<EOF
+$merges
+EOF
+  fi
+elif [ -z "$INPUT_PLATFORMS" ]; then
   for extra in $extra_destinations; do
     set -- "$@" "--destination=$extra"
   done
@@ -231,10 +366,6 @@ else
     *:*) ;;
     *) destination="$destination:latest" ;;
   esac
-
-  platforms=$(echo "$INPUT_PLATFORMS" | tr ',' ' ')
-  arches=$(for platform in $platforms; do printf '%s,' "$(echo "$platform" | cut -d / -f 2)"; done)
-  docker run --privileged --rm "$INPUT_BINFMT_IMAGE" --install "${arches%,}"
 
   leaves=""
   for platform in $platforms; do
@@ -259,6 +390,15 @@ if [ "$INPUT_PUSH" != true ]; then
   exit 0
 fi
 
+# The images to sign, as a JSON array or object.
+if [ -n "$INPUT_BAKEFILE" ]; then
+  output="images=$images"
+  signed="$images"
+else
+  output="image=$image"
+  signed="[\"$image\"]"
+fi
+
 if [ "$INPUT_COSIGN" != off ]; then
   if [ "$INPUT_COSIGN" = keyless ]; then
     SIGN_ID_TOKEN=$(wget -q -O - --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
@@ -271,7 +411,7 @@ if [ "$INPUT_COSIGN" != off ]; then
   esac
   # shellcheck disable=SC2086 # the flag lists are word-split on purpose
   docker run --rm $helper_config_flags $key_flags \
-    --env SIGN_IMAGE="$image" --env SIGN_COSIGN="$INPUT_COSIGN" --env SIGN_KEY="$INPUT_COSIGN_KEY" \
+    --env SIGN_IMAGES="$signed" --env SIGN_COSIGN="$INPUT_COSIGN" --env SIGN_KEY="$INPUT_COSIGN_KEY" \
     --env SIGN_TLOG="$INPUT_TLOG" --env SIGN_SBOM="$INPUT_SBOM" --env SIGN_SERVER_URL="$GITHUB_SERVER_URL" --env SIGN_ID_TOKEN \
     --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
     --env COSIGN_PASSWORD --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
@@ -279,4 +419,4 @@ if [ "$INPUT_COSIGN" != off ]; then
     "$INPUT_SIGN_IMAGE" /sign.sh
 fi
 
-echo "image=$image" >> "$GITHUB_OUTPUT"
+echo "$output" >> "$GITHUB_OUTPUT"

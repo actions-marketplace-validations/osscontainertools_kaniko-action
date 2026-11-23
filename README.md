@@ -73,6 +73,57 @@ jobs:
 
 By default it builds `linux/amd64` and `linux/arm64` on GitHub's `ubuntu-26.04` and `ubuntu-26.04-arm` runners. On your own runners, set `runners`, for example `'{"linux/amd64": "arc-amd64", "linux/arm64": "arc-arm64"}'`.
 
+## Bake several images
+
+The `bake` action runs kaniko's `executor bake`. It builds several targets of a [bakefile](https://github.com/osscontainertools/kaniko/blob/v1.29.2/docs/bakefile.md) in one step, `kaniko-bake.hcl` in the workspace by default. Each target names its Dockerfile stage, destination and build args:
+
+```hcl
+target "app" {
+  target      = "app"
+  destination = ["ghcr.io/my-org/app:latest"]
+}
+
+target "tools" {
+  target      = "tools"
+  destination = ["ghcr.io/my-org/tools:latest"]
+  build_arg   = { VERSION = "1.2" }
+}
+```
+
+`targets` picks the targets, separated by spaces, and builds all of them when empty. `set` overrides a target's fields, one `<target>.<field>=<value>` per line. The `images` output maps each target to its image pinned by digest:
+
+```yaml
+      - id: bake
+        uses: osscontainertools/kaniko-action/bake@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+        with:
+          targets: app tools
+          set: |
+            app.destination=ghcr.io/${{ github.repository }}/app:${{ github.sha }}
+      - run: echo "pushed ${{ fromJSON(steps.bake.outputs.images).app }}"
+```
+
+`platforms` builds every target for each platform, emulated as with the action, and merges each target into one index at its destinations. For one runner per platform at native speed, use the reusable workflow `bake-multiarch.yml`, which takes the same `runners` as `multiarch.yml`:
+
+```yaml
+jobs:
+  images:
+    uses: osscontainertools/kaniko-action/.github/workflows/bake-multiarch.yml@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
+    permissions:
+      contents: read
+      packages: write
+    with:
+      targets: app tools
+  deploy:
+    needs: images
+    runs-on: ubuntu-26.04
+    steps:
+      - run: echo "deploying ${{ fromJSON(needs.images.outputs.images).app }}"
+```
+
+`cosign`, `tlog` and `sbom` sign each image and attach its SBOMs, as for one image, see [Signing](#signing).
+
+Bake needs a checkout. On Kubernetes, run the job in an image with crane and jq next to kaniko, such as the GitLab component's [bake image](https://gitlab.com/osscontainertools/components/kaniko/-/blob/main/images/bake/Dockerfile), to read the digests of what it pushed.
+
 ## Signing
 
 `cosign: keyless` signs the image with [cosign](https://github.com/sigstore/cosign) and the job's ID token, which needs `id-token: write`. The signature names the workflow and the branch or tag that built the image. Verify a release with:
@@ -116,6 +167,8 @@ The action retries pulls and the push three times, attaches a SLSA provenance at
 | [`test-container.yml`](.github/workflows/test-container.yml) | A job inside the kaniko image, as on Kubernetes, without a checkout |
 | [`test-multiarch-emulated.yml`](.github/workflows/test-multiarch-emulated.yml) | A multi-arch image in one job, emulated |
 | [`test-multiarch.yml`](.github/workflows/test-multiarch.yml) | A multi-arch image with one runner per platform |
+| [`test-bake.yml`](.github/workflows/test-bake.yml) | Several images from a bakefile, for one platform and emulated for two, and signed |
+| [`test-bake-multiarch.yml`](.github/workflows/test-bake-multiarch.yml) | Several multi-arch images from a bakefile with one runner per platform |
 | [`test-bootstrap.yml`](.github/workflows/test-bootstrap.yml) | A build of kaniko itself, or of any image with files in `/kaniko` or `/busybox` |
 
 For flags without an input, use `extra-args`, see kaniko's [flag reference](https://github.com/osscontainertools/kaniko#additional-flags). For registries other than ghcr.io, log in beforehand, for example with `docker/login-action`, or see [Pushing to Different Registries](https://github.com/osscontainertools/kaniko#pushing-to-different-registries).
