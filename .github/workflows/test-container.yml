@@ -14,7 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-26.04
-    container: ghcr.io/osscontainertools/kaniko:v1.29.1-debug@sha256:ebc38a988e5aa1aaea99240e931aeeeff9d8e6bb5a0bd0e00eaf79973bf0a773
+    container: ghcr.io/osscontainertools/kaniko:v1.29.2-debug@sha256:b3cadc638a5b0a7e8ae7b3b76704821b2b5f191163222da401283541c8fa2d41
     services:
       registry:
         image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c

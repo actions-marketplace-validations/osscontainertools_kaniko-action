@@ -31,7 +31,7 @@ The action works the same on GitHub's hosted runners and on Kubernetes runners w
 jobs:
   image:
     runs-on: arc-runner-set
-    container: ghcr.io/osscontainertools/kaniko:v1.29.1-debug
+    container: ghcr.io/osscontainertools/kaniko:v1.29.2-debug
     steps:
       - uses: osscontainertools/kaniko-action@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3
 ```
@@ -75,7 +75,7 @@ By default it builds `linux/amd64` and `linux/arm64` on GitHub's `ubuntu-26.04` 
 
 ## Defaults
 
-The action retries pulls, base image extraction and the push three times, attaches a SLSA provenance attestation, and annotates the image with the commit it was built from. Each of these is an input, see [`action.yml`](action.yml).
+The action retries pulls and the push three times, attaches a SLSA provenance attestation, and annotates the image with the commit it was built from. Each of these is an input, see [`action.yml`](action.yml).
 
 ## Examples
 
