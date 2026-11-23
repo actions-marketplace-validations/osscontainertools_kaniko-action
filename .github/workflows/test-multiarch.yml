@@ -2,6 +2,7 @@
 # own runner and merges them into one index. Later jobs read the index from the
 # `image` output. A user writes
 # `uses: osscontainertools/kaniko-action/.github/workflows/multiarch.yml@62bd46e3c9e39a6625220e87090a7af9cc431218 # v1.0.3`.
+# The merge job signs the index keylessly and attaches an SBOM to each platform.
 # The runners share no registry but ghcr.io, so pull requests from forks skip it.
 name: test-multiarch
 
@@ -13,6 +14,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   image:
@@ -21,6 +23,8 @@ jobs:
     with:
       context: tests/multiarch
       destination: ghcr.io/${{ github.repository }}/test-multiarch:${{ github.sha }}
+      cosign: keyless
+      sbom: true
 
   verify:
     needs: image
@@ -36,3 +40,17 @@ jobs:
           echo "$IMAGE" | grep -E "^ghcr.io/${GITHUB_REPOSITORY}/test-multiarch@sha256:[0-9a-f]{64}$"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           test "$(docker run --rm "$IMAGE" cat /arch)" = "$(dpkg --print-architecture)"
+      - if: matrix.runner == 'ubuntu-26.04'
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+          IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/multiarch.yml@${{ github.ref }}
+          SIGN_IMAGE: registry.gitlab.com/osscontainertools/components/kaniko/sign:release-018d8426701f196bd5dac1f2d816ec7a90981044@sha256:f41302b91c8b93674140c4d707cf78b3beb285416d17fa92a274a2a5ed1c9dd9
+        run: |
+          cosign() {
+            docker run --rm --volume "$HOME/.docker:/root/.docker:ro" --entrypoint cosign "$SIGN_IMAGE" "$@" \
+              --certificate-identity "$IDENTITY" --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          }
+          cosign verify "$IMAGE" > /dev/null
+          for digest in $(docker manifest inspect "$IMAGE" | jq -r '.manifests[] | select(.platform.os != "unknown") | .digest'); do
+            cosign verify-attestation --type spdxjson "${IMAGE%@*}@$digest" > /dev/null
+          done
