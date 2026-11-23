@@ -31,7 +31,7 @@ inputs:
     description: Layer cache in `<destination repository>/cache`, `off`, `on` or `split`. With `split` only the default branch writes it, other refs read it and write `<destination repository>/cache-unprotected`.
     default: "off"
   github-token-secret:
-    description: Offer `github-token` to `RUN --mount=type=secret,id=github_token`, for private dependencies on GitHub. It never ends up in the image.
+    description: Offer `github-token` to `RUN --mount=type=secret,id=github_token`, and as a `.netrc` for this GitHub instance to `id=netrc`, for private dependencies on GitHub. Only the `RUN` steps that mount it see it, and it never ends up in the image.
     default: "false"
   profile-preview:
     description: Enable kaniko's [Preview profile](https://github.com/osscontainertools/kaniko/blob/v1.29.2/docs/feature-flags.md#preview), the feature flags that become default in the next release. Feature flags set in the environment win.

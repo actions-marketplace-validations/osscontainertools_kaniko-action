@@ -48,7 +48,7 @@ on:
         type: string
         default: "off"
       github-token-secret:
-        description: Offer the job's token to `RUN --mount=type=secret,id=github_token`.
+        description: Offer the job's token to `RUN --mount=type=secret,id=github_token`, and as a `.netrc` for this GitHub instance to `id=netrc`.
         type: boolean
         default: false
       profile-preview:

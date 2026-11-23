@@ -3,3 +3,4 @@ USER 1000
 COPY owned /owned
 USER 0
 RUN --mount=type=secret,id=github_token test -s /run/secrets/github_token
+RUN --mount=type=secret,id=netrc grep -q '^machine github.com login x-access-token password .' /run/secrets/netrc
