@@ -226,7 +226,7 @@ jobs:
             export SIGN_ID_TOKEN
           fi
           docker run --rm \
-            --env SIGN_IMAGE="$IMAGE" --env SIGN_COSIGN --env SIGN_KEY=env://COSIGN_PRIVATE_KEY \
+            --env SIGN_IMAGES="[\"$IMAGE\"]" --env SIGN_COSIGN --env SIGN_KEY=env://COSIGN_PRIVATE_KEY \
             --env SIGN_TLOG --env SIGN_SBOM --env SIGN_SERVER_URL="$GITHUB_SERVER_URL" --env SIGN_ID_TOKEN \
             --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
             --env COSIGN_PRIVATE_KEY --env COSIGN_PASSWORD --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \

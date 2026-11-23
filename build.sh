@@ -260,23 +260,16 @@ EOF
     esac
   fi
   run false "$@"
-  if [ "$INPUT_PUSH" != true ]; then
-    exit 0
-  fi
-  if [ "$direct" = true ]; then
+  if [ "$INPUT_PUSH" = true ] && [ "$direct" = true ]; then
     images=$(sh "$GITHUB_ACTION_PATH/bake.sh")
-  else
+  elif [ "$INPUT_PUSH" = true ]; then
     # shellcheck disable=SC2086 # the flag list is word-split on purpose
     images=$(docker run --rm $helper_config_flags \
       --env BAKE_TARGETS --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
       --volume "$GITHUB_ACTION_PATH/bake.sh:/bake.sh:ro" --entrypoint sh \
       "$INPUT_MERGE_IMAGE" /bake.sh)
   fi
-  echo "images=$images" >> "$GITHUB_OUTPUT"
-  exit 0
-fi
-
-if [ -z "$INPUT_PLATFORMS" ]; then
+elif [ -z "$INPUT_PLATFORMS" ]; then
   for extra in $extra_destinations; do
     set -- "$@" "--destination=$extra"
   done
@@ -317,6 +310,15 @@ if [ "$INPUT_PUSH" != true ]; then
   exit 0
 fi
 
+# The images to sign, as a JSON array or object.
+if [ -n "$INPUT_BAKEFILE" ]; then
+  output="images=$images"
+  signed="$images"
+else
+  output="image=$image"
+  signed="[\"$image\"]"
+fi
+
 if [ "$INPUT_COSIGN" != off ]; then
   if [ "$INPUT_COSIGN" = keyless ]; then
     SIGN_ID_TOKEN=$(wget -q -O - --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
@@ -329,7 +331,7 @@ if [ "$INPUT_COSIGN" != off ]; then
   esac
   # shellcheck disable=SC2086 # the flag lists are word-split on purpose
   docker run --rm $helper_config_flags $key_flags \
-    --env SIGN_IMAGE="$image" --env SIGN_COSIGN="$INPUT_COSIGN" --env SIGN_KEY="$INPUT_COSIGN_KEY" \
+    --env SIGN_IMAGES="$signed" --env SIGN_COSIGN="$INPUT_COSIGN" --env SIGN_KEY="$INPUT_COSIGN_KEY" \
     --env SIGN_TLOG="$INPUT_TLOG" --env SIGN_SBOM="$INPUT_SBOM" --env SIGN_SERVER_URL="$GITHUB_SERVER_URL" --env SIGN_ID_TOKEN \
     --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
     --env COSIGN_PASSWORD --env KANIKO_GHCR_IO_USER --env KANIKO_GHCR_IO_PASSWORD \
@@ -337,4 +339,4 @@ if [ "$INPUT_COSIGN" != off ]; then
     "$INPUT_SIGN_IMAGE" /sign.sh
 fi
 
-echo "image=$image" >> "$GITHUB_OUTPUT"
+echo "$output" >> "$GITHUB_OUTPUT"
