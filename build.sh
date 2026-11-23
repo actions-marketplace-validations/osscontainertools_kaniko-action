@@ -107,8 +107,9 @@ esac
 
 if [ "$INPUT_GITHUB_TOKEN_SECRET" = true ]; then
   KANIKO_SECRET_GITHUB_TOKEN="$INPUT_GITHUB_TOKEN"
-  export KANIKO_SECRET_GITHUB_TOKEN
-  set -- "$@" --secret=id=github_token,env=KANIKO_SECRET_GITHUB_TOKEN
+  KANIKO_SECRET_NETRC="machine ${GITHUB_SERVER_URL#*://} login x-access-token password $INPUT_GITHUB_TOKEN"
+  export KANIKO_SECRET_GITHUB_TOKEN KANIKO_SECRET_NETRC
+  set -- "$@" --secret=id=github_token,env=KANIKO_SECRET_GITHUB_TOKEN --secret=id=netrc,env=KANIKO_SECRET_NETRC
 fi
 
 # The profiles mirror docs/feature-flags.md of the kaniko version `image` pins.
